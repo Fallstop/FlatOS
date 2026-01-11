@@ -17,11 +17,14 @@ RUN pnpm rebuild better-sqlite3
 
 FROM base AS builder
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY web-service/ .
+
+# Rebuild better-sqlite3 for the builder stage architecture
+RUN pnpm rebuild better-sqlite3
 
 # Disable Next.js telemetry
 ENV NEXT_TELEMETRY_DISABLED=1

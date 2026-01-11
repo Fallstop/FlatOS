@@ -71,6 +71,7 @@ export function RecentTransactions({
                                                     height={20}
                                                     className="rounded shrink-0"
                                                     unoptimized
+                                                    referrerPolicy="no-referrer"
                                                 />
                                             )}
                                             <div className="min-w-0">

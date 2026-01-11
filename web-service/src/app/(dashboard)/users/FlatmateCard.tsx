@@ -307,6 +307,7 @@ export function FlatmateCard({ flatmate, currentSchedule, paymentStats }: Flatma
                             height={48}
                             className="w-12 h-12 rounded-full"
                             unoptimized
+                            referrerPolicy="no-referrer"
                         />
                     ) : (
                         <div className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center">

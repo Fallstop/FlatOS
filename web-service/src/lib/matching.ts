@@ -125,7 +125,11 @@ async function determineMatchType(
     amount: number,
     date: Date
 ): Promise<{ type: "rent_payment" | "grocery_reimbursement" | "other"; confidence: number }> {
+    console.log("[Matching] Determining match type for user:", userId, "amount:", amount, "date:", date);
+
     // Get the payment schedule for this user at this date
+    // Note: dates are stored as seconds in SQLite, so convert for raw SQL comparison
+    const dateSeconds = Math.floor(date.getTime() / 1000);
     const schedules = await db
         .select()
         .from(paymentSchedules)
@@ -133,11 +137,16 @@ async function determineMatchType(
             and(
                 eq(paymentSchedules.userId, userId),
                 lte(paymentSchedules.startDate, date),
-                sql`(${paymentSchedules.endDate} IS NULL OR ${paymentSchedules.endDate} >= ${date.getTime()})`
+                or(
+                    isNull(paymentSchedules.endDate),
+                    sql`${paymentSchedules.endDate} >= ${dateSeconds}`
+                )
             )
         )
         .limit(1);
 
+    console.log("[Matching] Found schedules:", schedules);
+    
     if (schedules.length === 0) {
         // No schedule - can't determine type precisely
         return { type: "other", confidence: 0.7 };
@@ -149,7 +158,6 @@ async function determineMatchType(
 
     // Check if amount matches expected payment (±20% tolerance)
     const tolerance = 0.2;
-
     // Check weekly amount
     if (isWithinTolerance(amount, expectedWeekly, tolerance)) {
         return { type: "rent_payment", confidence: 0.95 };
@@ -168,11 +176,7 @@ async function determineMatchType(
     return { type: "other", confidence: 0.6 };
 }
 
-function isWithinTolerance(actual: number, expected: number, tolerance: number): boolean {
-    const lower = expected * (1 - tolerance);
-    const upper = expected * (1 + tolerance);
-    return actual >= lower && actual <= upper;
-}
+import { isWithinTolerance } from "./utils";
 
 /**
  * Re-match all transactions that don't have a match
@@ -180,8 +184,7 @@ function isWithinTolerance(actual: number, expected: number, tolerance: number):
 export async function rematchAllTransactions(): Promise<{ matched: number; total: number }> {
     const unmatchedTxs = await db
         .select()
-        .from(transactions)
-        .where(isNull(transactions.matchedUserId));
+        .from(transactions);
 
     let matched = 0;
 

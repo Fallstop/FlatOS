@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, paymentSchedules, transactions } from "@/lib/db/schema";
-import { desc, and, lte, sql, ne } from "drizzle-orm";
+import { desc, and, lte, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { UserPlus, Building2, DollarSign } from "lucide-react";
 import { AddFlatmateDialog } from "./AddFlatmateDialog";
@@ -15,11 +15,10 @@ export default async function UsersPage() {
         redirect("/");
     }
 
-    // Get all flatmates (non-admin users)
+    // Get all flatmates (including admin)
     const flatmates = await db
         .select()
         .from(users)
-        .where(ne(users.role, "admin"))
         .orderBy(desc(users.createdAt));
 
     // Get current payment schedules for each user

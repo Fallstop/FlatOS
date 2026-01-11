@@ -2,8 +2,10 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { Search, Filter, Download, ChevronDown, ChevronUp, X, RefreshCw, ArrowDownRight, ArrowUpRight, CreditCard } from "lucide-react";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
+import { startOfDay, previousFriday, isFriday } from "date-fns";
 import { TransactionDetailModal } from "./TransactionDetailModal";
+import { isRentPayment } from "@/lib/utils";
 import type { Transaction as TransactionType, User } from "@/lib/db/schema";
 import Image from "next/image";
 
@@ -16,6 +18,32 @@ interface TransactionListProps {
 
 const TIMEZONE = "Pacific/Auckland";
 const PAGE_SIZE = 50;
+
+// Get the Friday midnight boundary for a date in the timezone
+function getFridayBoundary(date: Date): Date {
+    const zonedDate = toZonedTime(date, TIMEZONE);
+    const startOfDayZoned = startOfDay(zonedDate);
+    
+    // If it's Friday, return the start of this Friday
+    if (isFriday(zonedDate)) {
+        return startOfDayZoned;
+    }
+    // Otherwise, get the previous Friday
+    return previousFriday(startOfDayZoned);
+}
+
+// Check if two dates are on different sides of a Friday midnight
+function crossesFridayBoundary(date1: Date, date2: Date): Date | null {
+    const friday1 = getFridayBoundary(date1);
+    const friday2 = getFridayBoundary(date2);
+    
+    // If they have different Friday boundaries, return the Friday between them
+    if (friday1.getTime() !== friday2.getTime()) {
+        // Return the more recent Friday (the one that comes after date2 but before date1)
+        return friday1.getTime() > friday2.getTime() ? friday1 : friday2;
+    }
+    return null;
+}
 
 export function TransactionList({ initialTransactions, flatmates, hasMore: initialHasMore, loadMoreAction }: TransactionListProps) {
     const [transactions, setTransactions] = useState(initialTransactions);
@@ -344,12 +372,30 @@ export function TransactionList({ initialTransactions, flatmates, hasMore: initi
                                     </td>
                                 </tr>
                             ) : (
-                                filteredTransactions.map((tx) => (
-                                    <tr 
-                                        key={tx.id} 
-                                        className="cursor-pointer"
-                                        onClick={() => setSelectedTransaction(tx)}
-                                    >
+                                filteredTransactions.map((tx, index) => {
+                                    const prevTx = index > 0 ? filteredTransactions[index - 1] : null;
+                                    const fridayBoundary = prevTx ? crossesFridayBoundary(prevTx.date, tx.date) : null;
+                                    
+                                    return (
+                                        <>
+                                            {fridayBoundary && (
+                                                <tr key={`friday-${fridayBoundary.getTime()}`} className="pointer-events-none">
+                                                    <td colSpan={6} className="p-0! border-0!">
+                                                        <div className="flex items-center gap-3 py-2 px-4">
+                                                            <div className="flex-1 h-px bg-linear-to-r from-transparent via-amber-500/50 to-transparent" />
+                                                            <span className="text-xs font-medium text-amber-400/80 whitespace-nowrap">
+                                                                Week of {formatInTimeZone(fridayBoundary, TIMEZONE, "d MMM")}
+                                                            </span>
+                                                            <div className="flex-1 h-px bg-linear-to-r from-transparent via-amber-500/50 to-transparent" />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            <tr 
+                                                key={tx.id} 
+                                                className="cursor-pointer"
+                                                onClick={() => setSelectedTransaction(tx)}
+                                            >
                                         <td className="text-slate-400 pr-0!">
                                             <div className="text-slate-200">
                                                 {formatInTimeZone(tx.date, TIMEZONE, "d MMM yyyy")}
@@ -367,6 +413,7 @@ export function TransactionList({ initialTransactions, flatmates, hasMore: initi
                                                     height={24}
                                                     className="rounded shrink-0 grayscale-100 brightness-75 contrast-200 invert mix-blend-color-dodge"
                                                     unoptimized
+                                                    referrerPolicy="no-referrer"
                                                 />
                                             )}
                                         </td>
@@ -393,7 +440,7 @@ export function TransactionList({ initialTransactions, flatmates, hasMore: initi
                                         </td>
                                         <td>
                                             {tx.matchedUserId ? (
-                                                <span className="badge badge-success">
+                                                <span className={`badge ${isRentPayment(tx.matchType) ? "badge-success" : "badge-neutral"}`}>
                                                     {tx.matchedUserName || "Matched"}
                                                 </span>
                                             ) : (
@@ -405,7 +452,9 @@ export function TransactionList({ initialTransactions, flatmates, hasMore: initi
                                             ${Math.abs(tx.amount).toFixed(2)}
                                         </td>
                                     </tr>
-                                ))
+                                        </>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>

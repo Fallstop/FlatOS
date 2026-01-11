@@ -90,6 +90,7 @@ export function TransactionDetailModal({ transaction, onClose }: TransactionDeta
                                     height={40}
                                     className="rounded-lg shrink-0"
                                     unoptimized
+                                    referrerPolicy="no-referrer"
                                 />
                             )}
                             <div>

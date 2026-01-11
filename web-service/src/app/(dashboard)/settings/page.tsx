@@ -1,12 +1,13 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { users, systemState } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { User, Mail, Calendar, Shield } from "lucide-react";
+import { User, Mail, Calendar, Shield, Settings2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import Image from "next/image";
 import { SettingsForm } from "./SettingsForm";
+import { AnalysisStartDateForm } from "./AnalysisStartDateForm";
 
 export default async function SettingsPage() {
     const session = await auth();
@@ -26,6 +27,18 @@ export default async function SettingsPage() {
     }
 
     const user = dbUser[0];
+    const isAdmin = user.role === "admin";
+
+    // Get analysis start date if admin
+    let analysisStartDate: string | null = null;
+    if (isAdmin) {
+        const setting = await db
+            .select()
+            .from(systemState)
+            .where(eq(systemState.key, "analysis_start_date"))
+            .limit(1);
+        analysisStartDate = setting[0]?.value ?? null;
+    }
 
     return (
         <div className="max-w-3xl mx-auto">
@@ -52,6 +65,7 @@ export default async function SettingsPage() {
                                 height={64}
                                 className="rounded-full border-2 border-slate-600"
                                 unoptimized
+                                referrerPolicy="no-referrer"
                             />
                         ) : (
                             <div className="w-16 h-16 rounded-full bg-linear-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-2xl font-bold">
@@ -135,6 +149,22 @@ export default async function SettingsPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Admin Settings */}
+            {isAdmin && (
+                <div className="glass rounded-2xl overflow-hidden">
+                    <div className="p-5 border-b border-slate-700/50">
+                        <h2 className="font-semibold text-lg flex items-center gap-2">
+                            <Settings2 className="w-5 h-5 text-amber-400" />
+                            Admin Settings
+                        </h2>
+                        <p className="text-sm text-slate-400 mt-1">
+                            System-wide configuration
+                        </p>
+                    </div>
+                    <AnalysisStartDateForm initialValue={analysisStartDate} />
+                </div>
+            )}
         </div>
     );
 }

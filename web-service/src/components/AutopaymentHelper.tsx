@@ -92,8 +92,8 @@ export function AutopaymentHelper({
             paymentStartDate = startOfDay(now);
         }
 
-        const isAhead = totalBalance > 0;
-        const isBehind = totalBalance < 0;
+        const isAhead = totalBalance >= 0.01;
+        const isBehind = totalBalance <= -0.01;
         const amountOwed = Math.abs(totalBalance);
         
         let stepNumber = 1;
@@ -205,7 +205,7 @@ export function AutopaymentHelper({
             const lastStep = steps[steps.length - 1];
             if (lastStep && 
                 !lastStep.isOneTime && 
-                Math.abs(lastStep.amount - segment.amount) < 0.01 &&
+                Math.abs(lastStep.amount - segment.amount) <= 0.01 &&
                 differenceInWeeks(adjustedStart, lastStep.endDate) <= 1) {
                 // Merge by extending the previous step
                 lastStep.endDate = segment.end;
@@ -247,8 +247,8 @@ export function AutopaymentHelper({
 
     const steps = calculateAutopaymentSteps();
     const isOnTrack = Math.abs(totalBalance) <= currentWeeklyRate * 0.5;
-    const isAhead = totalBalance > 0;
-    const isBehind = totalBalance < 0;
+    const isAhead = totalBalance >= 0.01;
+    const isBehind = totalBalance <= -0.01;
 
     const formatThursday = (date: Date) => format(date, "EEE d MMM yyyy");
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { User, Clock, CheckCircle2, AlertCircle, X, ChevronRight } from "lucide-react";
+import { User, Clock, CheckCircle2, AlertCircle, X, ChevronRight, Dot } from "lucide-react";
 import { format } from "date-fns";
 import type { FlatmateBalance, WeeklyObligation } from "@/lib/calculations";
 import { PaymentHistoryChart } from "@/components/PaymentHistoryChart";
@@ -95,7 +95,7 @@ function WeekTransactionsModal({
                         {week.allAccountTransactions.length} Transaction{week.allAccountTransactions.length !== 1 ? "s" : ""} to account
                         {week.allAccountTransactions.some(tx => tx.isRentPayment) && (
                             <>
-                                {" • "}
+                                <Dot className="inline"/>
                                 <span className="text-emerald-400">
                                     {week.allAccountTransactions.filter(tx => tx.isRentPayment).length} identified as rent
                                 </span>

@@ -16,11 +16,11 @@ function formatCurrency(amount: number): string {
     return new Intl.NumberFormat("en-NZ", {
         style: "currency",
         currency: "NZD",
-    }).format(amount);
+    }).format(amount+0.0000002); // Avoid floating point issues to assume possitive amounts
 }
 
 function BalanceIndicator({ balance }: { balance: number }) {
-    if (balance >= 0) {
+    if (balance >= 0.01) {
         return (
             <div className="flex items-center gap-1 text-emerald-400">
                 <TrendingUp className="w-4 h-4" />
@@ -30,6 +30,18 @@ function BalanceIndicator({ balance }: { balance: number }) {
             </div>
         );
     }
+
+    if (Math.abs(balance) < 0.01) {
+        return (
+            <div className="flex items-center gap-1 text-slate-400">
+                <span className="text-sm font-medium">
+                    Settled up
+                </span>
+            </div>
+        );
+    }
+
+
     return (
         <div className="flex items-center gap-1 text-rose-400">
             <TrendingDown className="w-4 h-4" />
@@ -128,39 +140,13 @@ export function PaymentStatusCard({ balance, isCurrentUser, isSelected, onSelect
                 </div>
                 <div className="p-3 text-center">
                     <p className="text-xs text-slate-500 uppercase tracking-wide">Balance</p>
-                    <p className={`text-sm font-medium mt-1 ${balance.balance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {balance.balance >= 0 ? "+" : ""}{formatCurrency(balance.balance)}
+                    <p className={`text-sm font-medium mt-1 ${balance.balance > -0.01 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {balance.balance > 0.01 ? "+" : ""}{formatCurrency(balance.balance)}
                     </p>
                 </div>
             </div>
 
-            {/* Recent Weeks */}
-            {recentWeeks.length > 0 && (
-                <div className="p-3 border-t border-slate-700/50">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setIsExpanded(!isExpanded);
-                        }}
-                        className="w-full flex items-center justify-between text-sm text-slate-400 hover:text-slate-300 transition-colors"
-                    >
-                        <span>Recent payments</span>
-                        {isExpanded ? (
-                            <ChevronUp className="w-4 h-4" />
-                        ) : (
-                            <ChevronDown className="w-4 h-4" />
-                        )}
-                    </button>
 
-                    {isExpanded && (
-                        <div className="mt-3 space-y-1">
-                            {recentWeeks.map((week) => (
-                                <WeekRow key={week.weekStart.toISOString()} week={week} />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 }

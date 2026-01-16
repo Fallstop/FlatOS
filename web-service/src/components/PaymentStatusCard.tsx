@@ -52,49 +52,9 @@ function BalanceIndicator({ balance }: { balance: number }) {
     );
 }
 
-function WeekRow({ week }: { week: WeeklyObligation }) {
-    const isPaid = week.amountPaid >= week.amountDue * 0.95;
-    const isOverpaid = week.amountPaid > week.amountDue * 1.05;
-    const isPartial = week.amountPaid > 0 && week.amountPaid < week.amountDue * 0.95;
 
-    return (
-        <div className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-700/30 transition-colors">
-            <div className="flex items-center gap-3">
-                {isPaid ? (
-                    <CheckCircle2 className={`w-4 h-4 ${isOverpaid ? "text-cyan-400" : "text-emerald-400"}`} />
-                ) : isPartial ? (
-                    <Clock className="w-4 h-4 text-amber-400" />
-                ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-400" />
-                )}
-                <div>
-                    <p className="text-sm font-medium">
-                        {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM")}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                        Due {format(week.dueDate, "EEE d MMM")}
-                    </p>
-                </div>
-            </div>
-            <div className="text-right">
-                <p className="text-sm">
-                    <span className={isPaid ? "text-emerald-400" : isPartial ? "text-amber-400" : "text-slate-400"}>
-                        {formatCurrency(week.amountPaid)}
-                    </span>
-                    <span className="text-slate-500"> / </span>
-                    <span className="text-slate-400">{formatCurrency(week.amountDue)}</span>
-                </p>
-            </div>
-        </div>
-    );
-}
 
 export function PaymentStatusCard({ balance, isCurrentUser, isSelected, onSelect }: PaymentStatusCardProps) {
-    const [isExpanded, setIsExpanded] = useState(false);
-
-    // Get recent weeks (last 4)
-    const recentWeeks = balance.weeklyBreakdown.slice(-4).reverse();
-
     return (
         <div 
             className={`glass rounded-xl overflow-hidden transition-all cursor-pointer ${

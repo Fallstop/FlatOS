@@ -239,26 +239,16 @@ async function calculateFlatmateBalance(
 
         const amountDue = getWeeklyAmount(schedules, weekStartRaw);
 
-        // Payment window for matching rent payments (allows some flexibility for late payments)
-        const paymentWindowStart = addDays(dueDate, -7);
-        const paymentWindowEnd = addDays(dueDate, 3);
-
         // Find ALL transactions in this week's payment window (for user's payment display)
         const allWeekTransactions = allUserTransactions.filter((tx) => {
-            if (assignedAllTransactionIds.has(tx.id)) {
-                return false;
-            }
             const txDate = tx.date;
-            return txDate >= paymentWindowStart && txDate <= paymentWindowEnd;
+            return txDate >= weekStart && txDate <= weekEnd;
         });
 
         // Find rent payment transactions for balance calculation
         const weekRentPayments = rentPaymentTransactions.filter((tx) => {
-            if (assignedRentPaymentIds.has(tx.id)) {
-                return false;
-            }
             const txDate = tx.date;
-            return txDate >= paymentWindowStart && txDate <= paymentWindowEnd;
+            return txDate >= weekStart && txDate <= weekEnd;
         });
 
         // Find ALL account transactions within the actual week boundaries (for transparency view)

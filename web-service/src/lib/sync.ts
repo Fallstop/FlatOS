@@ -7,7 +7,7 @@ import type { Transaction as AkahuTransaction, EnrichedTransaction } from "akahu
 
 const SYNC_STATE_KEY = "last_sync_cursor";
 const LAST_REFRESH_KEY = "last_manual_refresh";
-const REFRESH_INTERVAL_MS = 90 * 60 * 1000; // 1.5 hours in ms
+const REFRESH_INTERVAL_MS = 60 * 1000; // 1 hour in ms
 
 export interface SyncResult {
     inserted: number;

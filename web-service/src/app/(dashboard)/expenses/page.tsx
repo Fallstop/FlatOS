@@ -4,13 +4,14 @@ import { expenseCategories, expenseMatchingRules } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import {
     getExpenseSummary,
-    calculatePowerBurnRate,
+    calculateAllCategoryBurnRates,
     getAllExpenseTransactions,
     getPeriodDates,
-    getMonthlyExpenseData,
+    getWeeklyExpenseDataAllCategories,
+    getWeeklyExpenseData,
 } from "@/lib/expense-calculations";
 import { ExpenseCategoryCard, AddCategoryCard } from "@/components/expenses/ExpenseCategoryCard";
-import { PowerTrackingView } from "@/components/expenses/PowerTrackingView";
+import { ExpenseBurnRates } from "@/components/expenses/ExpenseBurnRates";
 import { ExpenseTransactionList } from "@/components/expenses/ExpenseTransactionList";
 import { ExpenseChart } from "@/components/expenses/ExpenseChart";
 import { ExpenseRulesManager } from "./ExpenseRulesManager";
@@ -67,14 +68,8 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
     // Get expense summaries
     const summaries = await getExpenseSummary(startDate, endDate);
 
-    // Get power burn rate if power category exists and is selected
-    const powerCategory = categories.find((c) => c.slug === "power");
-    const showPowerTracker =
-        selectedCategory?.slug === "power" ||
-        (!selectedCategory && powerCategory?.trackAllotments);
-    const burnRate = showPowerTracker && powerCategory
-        ? await calculatePowerBurnRate(powerCategory.id)
-        : null;
+    // Get burn rates for all categories
+    const burnRates = await calculateAllCategoryBurnRates();
 
     // Get expense transactions
     const expenseTransactions = selectedCategory
@@ -91,8 +86,11 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
             .orderBy(desc(expenseMatchingRules.priority))
         : [];
 
-    // Get monthly expense data for the chart (last 12 months)
-    const monthlyData = await getMonthlyExpenseData(12);
+    // Get chart data - weekly for all categories, or weekly for selected category
+    const weeklyDataAllCategories = selectedCategory ? undefined : await getWeeklyExpenseDataAllCategories(startDate, endDate);
+    const weeklyData = selectedCategory
+        ? await getWeeklyExpenseData(selectedCategory.id, startDate, endDate)
+        : undefined;
 
     return (
         <div className="max-w-full w-7xl mx-auto page-enter">
@@ -129,8 +127,8 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                                 isSelected={isSelected}
                                 href={categoryHref}
                                 subtitle={
-                                    category.trackAllotments && burnRate
-                                        ? `$${burnRate.weeklyRate.toFixed(2)}/week burn rate`
+                                    burnRates.find(br => br.category.id === category.id)?.monthlyRate
+                                        ? `$${burnRates.find(br => br.category.id === category.id)!.monthlyRate.toFixed(2)}/month`
                                         : undefined
                                 }
                             />
@@ -146,8 +144,16 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
 
             {/* Expense Chart */}
             <div className="glass rounded-2xl p-5 mb-8 animate-fade-in-up">
-                <h2 className="font-semibold text-lg mb-4">Monthly Expenses (Last 12 Months)</h2>
-                <ExpenseChart data={monthlyData} />
+                <h2 className="font-semibold text-lg mb-4">
+                    {selectedCategory
+                        ? `${selectedCategory.name} - Weekly Spending`
+                        : "Weekly Expenses"}
+                </h2>
+                <ExpenseChart
+                    weeklyDataAllCategories={weeklyDataAllCategories}
+                    weeklyData={weeklyData}
+                    selectedCategory={selectedCategory}
+                />
             </div>
 
             {/* Main Content Grid */}
@@ -177,10 +183,8 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
 
                 {/* Side Panel */}
                 <div className="space-y-6">
-                    {/* Power Tracker */}
-                    {showPowerTracker && burnRate && (
-                        <PowerTrackingView burnRate={burnRate} />
-                    )}
+                    {/* Burn Rates */}
+                    <ExpenseBurnRates burnRates={burnRates} />
 
                     {/* Quick Stats */}
                     <div className="glass rounded-2xl p-5">

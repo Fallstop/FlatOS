@@ -284,6 +284,13 @@ export async function deleteExpenseRuleAction(id: string) {
     }
 
     try {
+        // Clear rule reference from any expense transactions that used this rule
+        await db
+            .update(expenseTransactions)
+            .set({ matchedRuleId: null })
+            .where(eq(expenseTransactions.matchedRuleId, id));
+
+        // Now delete the rule
         await db.delete(expenseMatchingRules).where(eq(expenseMatchingRules.id, id));
 
         revalidatePath("/expenses");
@@ -353,4 +360,125 @@ export async function seedExpenseDataAction() {
         console.error("Error seeding expense data:", error);
         return { error: "Failed to seed expense data" };
     }
+}
+
+// ============================================
+// Export/Import Actions
+// ============================================
+
+interface ExportedCategory {
+    name: string;
+    slug: string;
+    icon: string;
+    color: string;
+    trackAllotments: boolean;
+    sortOrder: number;
+    isActive: boolean;
+}
+
+interface ExportedRule {
+    categorySlug: string;
+    name: string;
+    priority: number;
+    merchantPattern: string | null;
+    descriptionPattern: string | null;
+    accountPattern: string | null;
+    akahuCategory: string | null;
+    matchMode: "any" | "all";
+    isRegex: boolean;
+    isActive: boolean;
+}
+
+interface ImportData {
+    categories: ExportedCategory[];
+    rules: ExportedRule[];
+}
+
+export async function importExpenseDataAction(jsonData: string) {
+    const session = await auth();
+    if (!session?.user || session.user.role !== "admin") {
+        return { error: "Unauthorized - admin access required" };
+    }
+
+    let data: ImportData;
+    try {
+        data = JSON.parse(jsonData);
+    } catch {
+        return { error: "Invalid JSON format" };
+    }
+
+    if (!Array.isArray(data.categories) || !Array.isArray(data.rules)) {
+        return { error: "Invalid data format: missing categories or rules array" };
+    }
+
+    let categoriesImported = 0;
+    let rulesImported = 0;
+    const errors: string[] = [];
+
+    // Clear existing expense transactions references to rules (to allow deletion)
+    await db
+        .update(expenseTransactions)
+        .set({ matchedRuleId: null });
+
+    // Delete existing rules and categories
+    await db.delete(expenseMatchingRules);
+    await db.delete(expenseCategories);
+
+    // Import categories
+    const categorySlugToId = new Map<string, string>();
+
+    for (const cat of data.categories) {
+        try {
+            const [inserted] = await db.insert(expenseCategories).values({
+                name: cat.name,
+                slug: cat.slug,
+                icon: cat.icon,
+                color: cat.color,
+                trackAllotments: cat.trackAllotments ?? false,
+                sortOrder: cat.sortOrder ?? 0,
+                isActive: cat.isActive ?? true,
+            }).returning();
+
+            categorySlugToId.set(cat.slug, inserted.id);
+            categoriesImported++;
+        } catch (err) {
+            errors.push(`Failed to import category "${cat.name}": ${err}`);
+        }
+    }
+
+    // Import rules
+    for (const rule of data.rules) {
+        const categoryId = categorySlugToId.get(rule.categorySlug);
+        if (!categoryId) {
+            errors.push(`Rule "${rule.name}" references unknown category "${rule.categorySlug}"`);
+            continue;
+        }
+
+        try {
+            await db.insert(expenseMatchingRules).values({
+                categoryId,
+                name: rule.name,
+                priority: rule.priority ?? 100,
+                merchantPattern: rule.merchantPattern,
+                descriptionPattern: rule.descriptionPattern,
+                accountPattern: rule.accountPattern,
+                akahuCategory: rule.akahuCategory,
+                matchMode: rule.matchMode ?? "any",
+                isRegex: rule.isRegex ?? false,
+                isActive: rule.isActive ?? true,
+            });
+            rulesImported++;
+        } catch (err) {
+            errors.push(`Failed to import rule "${rule.name}": ${err}`);
+        }
+    }
+
+    revalidatePath("/expenses");
+
+    return {
+        success: true,
+        categoriesImported,
+        rulesImported,
+        errors: errors.length > 0 ? errors : undefined,
+    };
 }

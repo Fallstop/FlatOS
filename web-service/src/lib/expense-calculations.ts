@@ -22,6 +22,17 @@ export interface PowerBurnRate {
     lastPaymentAmount: number | null;
 }
 
+export interface CategoryBurnRate {
+    category: ExpenseCategory;
+    dailyRate: number;
+    weeklyRate: number;
+    monthlyRate: number;
+    totalSpent: number;
+    daysCovered: number;
+    lastPaymentDate: Date | null;
+    lastPaymentAmount: number | null;
+}
+
 export interface ExpenseTransactionWithDetails {
     transaction: Transaction;
     expenseTransaction: ExpenseTransaction;
@@ -215,6 +226,68 @@ export async function calculatePowerBurnRate(categoryId?: string): Promise<Power
 }
 
 /**
+ * Calculate burn rates for all expense categories
+ */
+export async function calculateAllCategoryBurnRates(): Promise<CategoryBurnRate[]> {
+    const categories = await db
+        .select()
+        .from(expenseCategories)
+        .where(eq(expenseCategories.isActive, true))
+        .orderBy(expenseCategories.sortOrder);
+
+    // Get all expense transactions
+    const allExpenseTxs = await db
+        .select({
+            categoryId: expenseTransactions.categoryId,
+            amount: transactions.amount,
+            date: transactions.date,
+        })
+        .from(expenseTransactions)
+        .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
+        .orderBy(desc(transactions.date));
+
+    const results: CategoryBurnRate[] = [];
+
+    for (const category of categories) {
+        const categoryTxs = allExpenseTxs.filter(tx => tx.categoryId === category.id);
+
+        if (categoryTxs.length === 0) {
+            results.push({
+                category,
+                dailyRate: 0,
+                weeklyRate: 0,
+                monthlyRate: 0,
+                totalSpent: 0,
+                daysCovered: 0,
+                lastPaymentDate: null,
+                lastPaymentAmount: null,
+            });
+            continue;
+        }
+
+        const totalSpent = categoryTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+        const oldestTx = categoryTxs[categoryTxs.length - 1];
+        const newestTx = categoryTxs[0];
+        const daysCovered = Math.max(1, differenceInDays(newestTx.date, oldestTx.date));
+
+        const dailyRate = totalSpent / daysCovered;
+
+        results.push({
+            category,
+            dailyRate,
+            weeklyRate: dailyRate * 7,
+            monthlyRate: dailyRate * 30,
+            totalSpent,
+            daysCovered,
+            lastPaymentDate: newestTx.date,
+            lastPaymentAmount: Math.abs(newestTx.amount),
+        });
+    }
+
+    return results;
+}
+
+/**
  * Get expense transactions for a category with full details
  */
 export async function getExpenseTransactionsForCategory(
@@ -394,6 +467,80 @@ export interface MonthlyExpenseData {
     total: number;
 }
 
+export interface WeeklyExpenseData {
+    week: string;
+    weekStart: Date;
+    amount: number;
+}
+
+export interface WeeklyExpenseDataAllCategories {
+    week: string;
+    weekStart: Date;
+    categories: {
+        categoryId: string;
+        categoryName: string;
+        categoryColor: string;
+        amount: number;
+    }[];
+    total: number;
+}
+
+/**
+ * Get weekly expense data for a single category (for bar chart)
+ * Fills in all weeks in the range, even those without expenses
+ */
+export async function getWeeklyExpenseData(
+    categoryId: string,
+    startDate?: Date,
+    endDate?: Date
+): Promise<WeeklyExpenseData[]> {
+    const end = endDate || new Date();
+    const start = startDate || subMonths(end, 12);
+
+    const expenseTxs = await db
+        .select({
+            amount: transactions.amount,
+            date: transactions.date,
+        })
+        .from(expenseTransactions)
+        .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
+        .where(eq(expenseTransactions.categoryId, categoryId));
+
+    // Filter by date range
+    const filteredTxs = expenseTxs.filter(tx => tx.date >= start && tx.date <= end);
+
+    // Group by week (Saturday start)
+    const weeklyMap = new Map<string, number>();
+
+    filteredTxs.forEach(tx => {
+        const weekStart = startOfWeek(tx.date, { weekStartsOn: 6 });
+        const weekKey = weekStart.toISOString().split('T')[0];
+        const current = weeklyMap.get(weekKey) || 0;
+        weeklyMap.set(weekKey, current + Math.abs(tx.amount));
+    });
+
+    // Fill in all weeks in the range
+    const results: WeeklyExpenseData[] = [];
+    const currentWeek = startOfWeek(start, { weekStartsOn: 6 });
+    const endNormalized = new Date(end);
+    endNormalized.setHours(23, 59, 59, 999);
+
+    while (currentWeek <= endNormalized) {
+        const weekKey = currentWeek.toISOString().split('T')[0];
+        const amount = weeklyMap.get(weekKey) || 0;
+
+        results.push({
+            week: currentWeek.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }),
+            weekStart: new Date(currentWeek),
+            amount,
+        });
+
+        currentWeek.setDate(currentWeek.getDate() + 7);
+    }
+
+    return results;
+}
+
 /**
  * Get monthly expense data for all categories (for stacked area chart)
  */
@@ -441,6 +588,82 @@ export async function getMonthlyExpenseData(months: number = 12): Promise<Monthl
             categories: categoryData,
             total: categoryData.reduce((sum, c) => sum + c.amount, 0),
         });
+    }
+
+    return results;
+}
+
+/**
+ * Get weekly expense data for all categories (for stacked bar chart)
+ * Fills in all weeks in the range, even those without expenses
+ */
+export async function getWeeklyExpenseDataAllCategories(
+    startDate?: Date,
+    endDate?: Date
+): Promise<WeeklyExpenseDataAllCategories[]> {
+    const end = endDate || new Date();
+    const start = startDate || subMonths(end, 12);
+
+    const categories = await db
+        .select()
+        .from(expenseCategories)
+        .where(eq(expenseCategories.isActive, true))
+        .orderBy(expenseCategories.sortOrder);
+
+    // Get all expense transactions in the range
+    const allExpenseTxs = await db
+        .select({
+            categoryId: expenseTransactions.categoryId,
+            amount: transactions.amount,
+            date: transactions.date,
+        })
+        .from(expenseTransactions)
+        .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id));
+
+    // Filter by date range
+    const filteredTxs = allExpenseTxs.filter(tx => tx.date >= start && tx.date <= end);
+
+    // Group by week and category
+    const weeklyMap = new Map<string, Map<string, number>>();
+
+    filteredTxs.forEach(tx => {
+        const weekStart = startOfWeek(tx.date, { weekStartsOn: 6 });
+        const weekKey = weekStart.toISOString().split('T')[0];
+
+        if (!weeklyMap.has(weekKey)) {
+            weeklyMap.set(weekKey, new Map<string, number>());
+        }
+
+        const categoryMap = weeklyMap.get(weekKey)!;
+        const current = categoryMap.get(tx.categoryId) || 0;
+        categoryMap.set(tx.categoryId, current + Math.abs(tx.amount));
+    });
+
+    // Fill in all weeks in the range
+    const results: WeeklyExpenseDataAllCategories[] = [];
+    const currentWeek = startOfWeek(start, { weekStartsOn: 6 });
+    const endNormalized = new Date(end);
+    endNormalized.setHours(23, 59, 59, 999);
+
+    while (currentWeek <= endNormalized) {
+        const weekKey = currentWeek.toISOString().split('T')[0];
+        const categoryAmounts = weeklyMap.get(weekKey) || new Map<string, number>();
+
+        const categoryData = categories.map(cat => ({
+            categoryId: cat.id,
+            categoryName: cat.name,
+            categoryColor: cat.color,
+            amount: categoryAmounts.get(cat.id) || 0,
+        }));
+
+        results.push({
+            week: currentWeek.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }),
+            weekStart: new Date(currentWeek),
+            categories: categoryData,
+            total: categoryData.reduce((sum, c) => sum + c.amount, 0),
+        });
+
+        currentWeek.setDate(currentWeek.getDate() + 7);
     }
 
     return results;

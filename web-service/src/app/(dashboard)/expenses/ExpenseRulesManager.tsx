@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
     Settings2,
@@ -23,6 +24,7 @@ import {
     deleteExpenseRuleAction,
     rematchAllExpensesAction,
 } from "@/lib/expense-actions";
+import { ExpenseExportImport } from "./ExpenseExportImport";
 
 // Map icon names to components
 const iconMap: Record<string, LucideIcon> = {
@@ -101,7 +103,7 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
             {isOpen && (
                 <div className="border-t border-slate-700/50">
                     {/* Actions Bar */}
-                    <div className="p-4 border-b border-slate-700/50 flex items-center gap-3">
+                    <div className="p-4 border-b border-slate-700/50 flex flex-wrap items-center gap-3">
                         <button
                             onClick={() => setIsAdding(true)}
                             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 transition-colors"
@@ -121,6 +123,8 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
                             )}
                             Rematch All
                         </button>
+                        <div className="flex-1" />
+                        <ExpenseExportImport categories={categories} rules={rules} />
                     </div>
 
                     {/* Error */}
@@ -262,6 +266,12 @@ function RuleDialog({
 }) {
     const [isPending, startTransition] = useTransition();
     const [error, setError] = useState<string | null>(null);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+        return () => setMounted(false);
+    }, []);
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -285,7 +295,7 @@ function RuleDialog({
         });
     };
 
-    return (
+    const dialogContent = (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
             <div className="relative w-full max-w-lg glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95">
@@ -452,4 +462,7 @@ function RuleDialog({
             </div>
         </div>
     );
+
+    if (!mounted) return null;
+    return createPortal(dialogContent, document.body);
 }

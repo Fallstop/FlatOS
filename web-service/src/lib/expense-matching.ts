@@ -3,6 +3,41 @@ import { expenseMatchingRules, expenseTransactions, expenseCategories, transacti
 import { eq, and, desc, isNull, or } from "drizzle-orm";
 import type { Transaction, ExpenseMatchingRule } from "./db/schema";
 
+interface ParsedRawData {
+    meta?: {
+        particulars?: string;
+        code?: string;
+        reference?: string;
+        other_account?: string;
+    };
+    particulars?: string;
+    code?: string;
+    reference?: string;
+    other_account?: string;
+}
+
+/**
+ * Build a combined search string from transaction description and all meta fields
+ */
+function buildSearchableText(tx: Transaction): string {
+    let parsed: ParsedRawData = {};
+    try {
+        parsed = JSON.parse(tx.rawData) as ParsedRawData;
+    } catch {
+        // Fall back to just description
+    }
+
+    const meta = parsed.meta ?? {};
+    const searchFields = [
+        tx.description,
+        meta.particulars ?? parsed.particulars,
+        meta.code ?? parsed.code,
+        meta.reference ?? parsed.reference,
+    ].filter(Boolean);
+
+    return searchFields.join(" ");
+}
+
 export interface ExpenseMatchResult {
     categoryId: string;
     ruleId: string | null;
@@ -43,7 +78,8 @@ function ruleMatchesTransaction(rule: ExpenseMatchingRule, tx: Transaction): boo
     }
 
     if (rule.descriptionPattern) {
-        criteria.push(matchesPattern(rule.descriptionPattern, tx.description, rule.isRegex ?? false));
+        const searchableText = buildSearchableText(tx);
+        criteria.push(matchesPattern(rule.descriptionPattern, searchableText, rule.isRegex ?? false));
     }
 
     if (rule.accountPattern) {
@@ -99,7 +135,8 @@ export async function matchExpenseTransaction(tx: Transaction): Promise<ExpenseM
             }
             if (rule.descriptionPattern) {
                 totalCriteria++;
-                if (matchesPattern(rule.descriptionPattern, tx.description, rule.isRegex ?? false)) {
+                const searchableText = buildSearchableText(tx);
+                if (matchesPattern(rule.descriptionPattern, searchableText, rule.isRegex ?? false)) {
                     matchedCriteria++;
                 }
             }

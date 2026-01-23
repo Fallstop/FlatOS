@@ -73,7 +73,35 @@ function initializeMigrationsForPushDatabase() {
 }
 
 /**
+ * Mark a specific migration as applied if not already tracked.
+ */
+function markMigrationAsApplied(migrationName) {
+    // Ensure migrations table exists
+    sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash TEXT NOT NULL,
+            created_at INTEGER
+        )
+    `);
+
+    const existing = sqlite.prepare(
+        "SELECT id FROM __drizzle_migrations WHERE hash = ?"
+    ).get(migrationName);
+
+    if (!existing) {
+        sqlite.prepare(
+            "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)"
+        ).run(migrationName, Date.now());
+        console.log(`  Marked migration as applied: ${migrationName}`);
+        return true;
+    }
+    return false;
+}
+
+/**
  * Apply any schema changes that might be missing from push-created databases.
+ * Also marks the corresponding migrations as applied if schema already exists.
  */
 function applyMissingSchemaChanges() {
     // Check and add landlords table if missing
@@ -110,6 +138,17 @@ function applyMissingSchemaChanges() {
     if (!hasManualMatch) {
         console.log("Adding missing 'manual_match' column to transactions...");
         sqlite.exec("ALTER TABLE transactions ADD COLUMN manual_match INTEGER DEFAULT 0");
+    }
+
+    // If landlords table exists (either we just created it or it existed before),
+    // mark migration 0004 as applied so drizzle doesn't try to run it again
+    if (landlordsExists || true) {
+        const landlordsNowExists = sqlite.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='landlords'"
+        ).get();
+        if (landlordsNowExists) {
+            markMigrationAsApplied("0004_thin_ultimatum");
+        }
     }
 }
 

@@ -120,7 +120,7 @@ export function RuleDialog({ rule, categories, onClose, onSave }: RuleDialogProp
 
                             <div>
                                 <label className="block text-xs text-slate-400 mb-1">
-                                    Description
+                                    Description / Banking Details
                                 </label>
                                 <input
                                     name="descriptionPattern"
@@ -128,6 +128,9 @@ export function RuleDialog({ rule, categories, onClose, onSave }: RuleDialogProp
                                     placeholder="e.g., POWER PAYMENT"
                                     className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm"
                                 />
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Searches description, particulars, code, and reference
+                                </p>
                             </div>
 
                             <div>

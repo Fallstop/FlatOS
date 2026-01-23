@@ -135,7 +135,7 @@ export function AddCategoryCard() {
             <div className="p-3 rounded-xl bg-slate-700/50">
                 <Tag className="w-5 h-5" />
             </div>
-            <span className="font-medium text-sm">Add categories via Rules Manager below</span>
+            <span className="font-medium text-sm text-center">Use "Add Category" button in Rules Manager below</span>
         </div>
     );
 }

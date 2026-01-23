@@ -10,7 +10,7 @@ import {
     getWeeklyExpenseDataAllCategories,
     getWeeklyExpenseData,
 } from "@/lib/expense-calculations";
-import { ExpenseCategoryCard, AddCategoryCard } from "@/components/expenses/ExpenseCategoryCard";
+import { ExpenseCategoryCard } from "@/components/expenses/ExpenseCategoryCard";
 import { ExpenseBurnRates } from "@/components/expenses/ExpenseBurnRates";
 import { ExpenseTransactionList } from "@/components/expenses/ExpenseTransactionList";
 import { ExpenseChart } from "@/components/expenses/ExpenseChart";
@@ -135,11 +135,6 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                         </div>
                     );
                 })}
-                {isAdmin && (
-                    <div className="animate-fade-in-up">
-                        <AddCategoryCard />
-                    </div>
-                )}
             </div>
 
             {/* Expense Chart */}
@@ -157,10 +152,10 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
             </div>
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="flex flex-col lg:flex-row gap-6">
                 {/* Transactions List */}
-                <div className="lg:col-span-2 glass rounded-2xl overflow-hidden">
-                    <div className="p-5 border-b border-slate-700/50">
+                <div className="lg:flex-[2] glass rounded-2xl overflow-hidden flex flex-col min-h-[500px] max-h-[800px]">
+                    <div className="p-5 border-b border-slate-700/50 flex-shrink-0">
                         <h2 className="font-semibold text-lg">
                             {selectedCategory
                                 ? `${selectedCategory.name} Transactions`
@@ -171,7 +166,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                             {expenseTransactions.length !== 1 ? "s" : ""} in this period
                         </p>
                     </div>
-                    <div className="max-h-[500px] overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto min-h-0">
                         <ExpenseTransactionList
                             transactions={expenseTransactions}
                             categories={categories}
@@ -182,7 +177,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                 </div>
 
                 {/* Side Panel */}
-                <div className="space-y-6">
+                <div className="lg:flex-1 space-y-6">
                     {/* Burn Rates */}
                     <ExpenseBurnRates burnRates={burnRates} />
 

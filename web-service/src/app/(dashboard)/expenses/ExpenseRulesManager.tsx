@@ -15,6 +15,12 @@ import {
     Zap,
     ShoppingCart,
     Tag,
+    Fuel,
+    Wifi,
+    Car,
+    Home,
+    UtensilsCrossed,
+    Layers,
     LucideIcon,
 } from "lucide-react";
 import type { ExpenseMatchingRule, ExpenseCategory } from "@/lib/db/schema";
@@ -23,6 +29,9 @@ import {
     updateExpenseRuleAction,
     deleteExpenseRuleAction,
     rematchAllExpensesAction,
+    addExpenseCategoryAction,
+    updateExpenseCategoryAction,
+    deleteExpenseCategoryAction,
 } from "@/lib/expense-actions";
 import { ExpenseExportImport } from "./ExpenseExportImport";
 
@@ -31,7 +40,15 @@ const iconMap: Record<string, LucideIcon> = {
     Zap,
     ShoppingCart,
     Tag,
+    Fuel,
+    Wifi,
+    Car,
+    Home,
+    UtensilsCrossed,
 };
+
+const availableIcons = ["Zap", "ShoppingCart", "Tag", "Fuel", "Wifi", "Car", "Home", "UtensilsCrossed"];
+const availableColors = ["amber", "emerald", "blue", "purple", "rose", "cyan", "slate", "orange", "teal", "indigo", "pink"];
 
 interface ExpenseRulesManagerProps {
     rules: ExpenseMatchingRule[];
@@ -43,7 +60,9 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
     const [isOpen, setIsOpen] = useState(false);
     const [isPending, startTransition] = useTransition();
     const [editingRule, setEditingRule] = useState<ExpenseMatchingRule | null>(null);
-    const [isAdding, setIsAdding] = useState(false);
+    const [isAddingRule, setIsAddingRule] = useState(false);
+    const [editingCategory, setEditingCategory] = useState<ExpenseCategory | null>(null);
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Group rules by category
@@ -68,6 +87,18 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
         setError(null);
         startTransition(async () => {
             const result = await deleteExpenseRuleAction(ruleId);
+            if (result.error) {
+                setError(result.error);
+            } else {
+                router.refresh();
+            }
+        });
+    };
+
+    const handleDeleteCategory = (categoryId: string) => {
+        setError(null);
+        startTransition(async () => {
+            const result = await deleteExpenseCategoryAction(categoryId);
             if (result.error) {
                 setError(result.error);
             } else {
@@ -105,7 +136,14 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
                     {/* Actions Bar */}
                     <div className="p-4 border-b border-slate-700/50 flex flex-wrap items-center gap-3">
                         <button
-                            onClick={() => setIsAdding(true)}
+                            onClick={() => setIsAddingCategory(true)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors"
+                        >
+                            <Layers className="w-4 h-4" />
+                            Add Category
+                        </button>
+                        <button
+                            onClick={() => setIsAddingRule(true)}
                             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 transition-colors"
                         >
                             <Plus className="w-4 h-4" />
@@ -141,12 +179,30 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
 
                             return (
                                 <div key={category.id}>
-                                    <div className="flex items-center gap-2 mb-3">
+                                    <div className="flex items-center gap-2 mb-3 group">
                                         <IconComponent className="w-4 h-4 text-slate-400" />
                                         <h3 className="font-medium">{category.name}</h3>
                                         <span className="text-sm text-slate-500">
                                             ({categoryRules.length} rules)
                                         </span>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                            <button
+                                                onClick={() => setEditingCategory(category)}
+                                                disabled={isPending}
+                                                className="p-1 rounded hover:bg-slate-700 transition-colors"
+                                                title="Edit category"
+                                            >
+                                                <Edit2 className="w-3 h-3 text-slate-400" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteCategory(category.id)}
+                                                disabled={isPending}
+                                                className="p-1 rounded hover:bg-slate-700 transition-colors"
+                                                title="Delete category"
+                                            >
+                                                <Trash2 className="w-3 h-3 text-rose-400" />
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {categoryRules.length === 0 ? (
@@ -172,17 +228,33 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
                     </div>
 
                     {/* Add/Edit Rule Dialog */}
-                    {(isAdding || editingRule) && (
+                    {(isAddingRule || editingRule) && (
                         <RuleDialog
                             rule={editingRule}
                             categories={categories}
                             onClose={() => {
-                                setIsAdding(false);
+                                setIsAddingRule(false);
                                 setEditingRule(null);
                             }}
                             onSave={() => {
-                                setIsAdding(false);
+                                setIsAddingRule(false);
                                 setEditingRule(null);
+                                router.refresh();
+                            }}
+                        />
+                    )}
+
+                    {/* Add/Edit Category Dialog */}
+                    {(isAddingCategory || editingCategory) && (
+                        <CategoryDialog
+                            category={editingCategory}
+                            onClose={() => {
+                                setIsAddingCategory(false);
+                                setEditingCategory(null);
+                            }}
+                            onSave={() => {
+                                setIsAddingCategory(false);
+                                setEditingCategory(null);
                                 router.refresh();
                             }}
                         />
@@ -456,6 +528,169 @@ function RuleDialog({
                         >
                             {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                             {rule ? "Update" : "Create"} Rule
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+
+    if (!mounted) return null;
+    return createPortal(dialogContent, document.body);
+}
+
+function CategoryDialog({
+    category,
+    onClose,
+    onSave,
+}: {
+    category: ExpenseCategory | null;
+    onClose: () => void;
+    onSave: () => void;
+}) {
+    const [isPending, startTransition] = useTransition();
+    const [error, setError] = useState<string | null>(null);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+        return () => setMounted(false);
+    }, []);
+
+    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const formData = new FormData(e.currentTarget);
+
+        if (category) {
+            formData.set("id", category.id);
+        }
+
+        setError(null);
+        startTransition(async () => {
+            const result = category
+                ? await updateExpenseCategoryAction(formData)
+                : await addExpenseCategoryAction(formData);
+
+            if (result.error) {
+                setError(result.error);
+            } else {
+                onSave();
+            }
+        });
+    };
+
+    const dialogContent = (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative w-full max-w-md glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95">
+                <form onSubmit={handleSubmit}>
+                    <div className="p-5 border-b border-slate-700/50">
+                        <h2 className="font-semibold text-lg">
+                            {category ? "Edit Category" : "Add Category"}
+                        </h2>
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                        {/* Name */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Category Name</label>
+                            <input
+                                name="name"
+                                defaultValue={category?.name ?? ""}
+                                required
+                                placeholder="e.g., Power, Groceries"
+                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                            />
+                        </div>
+
+                        {/* Icon */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Icon</label>
+                            <select
+                                name="icon"
+                                defaultValue={category?.icon ?? "Tag"}
+                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                            >
+                                {availableIcons.map((icon) => {
+                                    const IconComponent = iconMap[icon] || Tag;
+                                    return (
+                                        <option key={icon} value={icon}>
+                                            {icon}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        </div>
+
+                        {/* Color */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Color</label>
+                            <select
+                                name="color"
+                                defaultValue={category?.color ?? "slate"}
+                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                            >
+                                {availableColors.map((color) => (
+                                    <option key={color} value={color}>
+                                        {color.charAt(0).toUpperCase() + color.slice(1)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Sort Order */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Sort Order</label>
+                            <input
+                                name="sortOrder"
+                                type="number"
+                                defaultValue={category?.sortOrder ?? 0}
+                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">
+                                Lower numbers appear first
+                            </p>
+                        </div>
+
+                        {/* Track Allotments */}
+                        <div>
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    name="trackAllotments"
+                                    value="true"
+                                    defaultChecked={category?.trackAllotments ?? false}
+                                    className="rounded border-slate-600"
+                                />
+                                <span className="text-sm">Track allotments (for budget tracking)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* Error */}
+                    {error && (
+                        <div className="mx-5 mb-4 p-3 rounded-xl bg-rose-500/20 text-rose-400 text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="p-5 border-t border-slate-700/50 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={isPending}
+                            className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isPending}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
+                        >
+                            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                            {category ? "Update" : "Create"} Category
                         </button>
                     </div>
                 </form>

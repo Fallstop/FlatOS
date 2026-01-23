@@ -102,6 +102,46 @@ export const systemState = sqliteTable("system_state", {
     updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// Expense categories (Power, Groceries, etc.)
+export const expenseCategories = sqliteTable("expense_categories", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    name: text("name").notNull().unique(),
+    slug: text("slug").notNull().unique(),
+    icon: text("icon").notNull(),           // Lucide icon: "Zap", "ShoppingCart"
+    color: text("color").notNull(),         // Tailwind: "amber", "emerald"
+    trackAllotments: integer("track_allotments", { mode: "boolean" }).default(false),
+    sortOrder: integer("sort_order").default(0),
+    isActive: integer("is_active", { mode: "boolean" }).default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// Matching rules for auto-categorization
+export const expenseMatchingRules = sqliteTable("expense_matching_rules", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    categoryId: text("category_id").notNull().references(() => expenseCategories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    priority: integer("priority").notNull().default(100),
+    merchantPattern: text("merchant_pattern"),      // Match merchant name
+    descriptionPattern: text("description_pattern"), // Match description
+    accountPattern: text("account_pattern"),        // Match bank account
+    akahuCategory: text("akahu_category"),          // Match Akahu category
+    matchMode: text("match_mode", { enum: ["any", "all"] }).default("any"),
+    isRegex: integer("is_regex", { mode: "boolean" }).default(false),
+    isActive: integer("is_active", { mode: "boolean" }).default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// Links transactions to expense categories
+export const expenseTransactions = sqliteTable("expense_transactions", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    transactionId: text("transaction_id").notNull().unique().references(() => transactions.id, { onDelete: "cascade" }),
+    categoryId: text("category_id").notNull().references(() => expenseCategories.id, { onDelete: "cascade" }),
+    matchedRuleId: text("matched_rule_id").references(() => expenseMatchingRules.id),
+    matchConfidence: real("match_confidence"),
+    manualMatch: integer("manual_match", { mode: "boolean" }).default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -109,3 +149,9 @@ export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
 export type PaymentSchedule = typeof paymentSchedules.$inferSelect;
 export type NewPaymentSchedule = typeof paymentSchedules.$inferInsert;
+export type ExpenseCategory = typeof expenseCategories.$inferSelect;
+export type NewExpenseCategory = typeof expenseCategories.$inferInsert;
+export type ExpenseMatchingRule = typeof expenseMatchingRules.$inferSelect;
+export type NewExpenseMatchingRule = typeof expenseMatchingRules.$inferInsert;
+export type ExpenseTransaction = typeof expenseTransactions.$inferSelect;
+export type NewExpenseTransaction = typeof expenseTransactions.$inferInsert;

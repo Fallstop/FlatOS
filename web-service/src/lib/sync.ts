@@ -3,6 +3,7 @@ import { db } from "./db";
 import { transactions, systemState } from "./db/schema";
 import { eq, sql } from "drizzle-orm";
 import { matchTransaction } from "./matching";
+import { processTransactionForExpenses } from "./expense-matching";
 import type { Transaction as AkahuTransaction, EnrichedTransaction } from "akahu";
 
 const SYNC_STATE_KEY = "last_sync_cursor";
@@ -160,6 +161,9 @@ export async function syncTransactions(): Promise<SyncResult> {
                             })
                             .where(eq(transactions.id, inserted.id));
                     }
+
+                    // Also process for expense categorization
+                    await processTransactionForExpenses(inserted.id);
                 }
             } catch (error) {
                 result.errors.push(`Failed to process transaction ${tx._id}: ${error}`);

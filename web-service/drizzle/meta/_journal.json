@@ -29,6 +29,13 @@
       "when": 1768268400000,
       "tag": "0003_tag_override",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1769152800528,
+      "tag": "0004_elite_gideon",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ import {
     Menu,
     X,
     Wallet,
+    Receipt,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -27,6 +28,7 @@ const navItems: NavItem[] = [
     { href: "/", label: "Dashboard", icon: <Home className="w-5 h-5" /> },
     { href: "/balances", label: "Balances", icon: <Wallet className="w-5 h-5" /> },
     { href: "/transactions", label: "Transactions", icon: <CreditCard className="w-5 h-5" /> },
+    { href: "/expenses", label: "Expenses", icon: <Receipt className="w-5 h-5" /> },
     { href: "/schedule", label: "Payment Schedule", icon: <Calendar className="w-5 h-5" /> },
     { href: "/users", label: "Flatmates", icon: <Users className="w-5 h-5" />, adminOnly: true },
     { href: "/settings", label: "Settings", icon: <Settings className="w-5 h-5" /> },

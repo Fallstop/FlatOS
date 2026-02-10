@@ -2,28 +2,20 @@
 
 A modern web application for managing shared household expenses, tracking flatmate payments, and maintaining transparency in shared living arrangements.
 
-![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss)
-![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?logo=sqlite)
-
 ## Features
 
-- 🏦 **Bank Account Integration** - Syncs transactions via [Akahu](https://akahu.nz) (NZ Open Banking)
-- 👥 **Flatmate Management** - Add flatmates and associate their bank accounts
-- 📊 **Payment Tracking** - Automatically match payments to flatmates with smart detection
-- 📅 **Flexible Payment Schedules** - Configure historical and future weekly payment amounts
-- 💰 **Balance Calculations** - See who owes what, with weekly breakdowns
-- 🔐 **Secure Authentication** - Google OAuth with email whitelist
-- 📱 **Responsive Design** - Works great on desktop and mobile
-- 🌙 **Dark Mode** - Easy on the eyes
+- **Bank Account Integration** - Syncs transactions via [Akahu](https://akahu.nz) (NZ Open Banking)
+- **Flatmate Management** - Add flatmates and associate their bank accounts
+- **Payment Tracking** - Automatically match payments to flatmates with smart detection
+- **Flexible Payment Schedules** - Configure historical and future weekly payment amounts
+- **Balance Calculations** - See who owes what, with weekly breakdowns
+- **Secure Authentication** - Google OAuth with email whitelist
 
 ## Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
-- pnpm (`npm install -g pnpm`)
 - Google OAuth credentials
 - Akahu personal app credentials
 
@@ -146,4 +138,4 @@ src/
 
 ## License
 
-Private - For personal use only.
+MIT

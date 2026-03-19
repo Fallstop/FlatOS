@@ -8,4 +8,4 @@ echo "Starting cron scheduler in background..."
 node scripts/cron-scheduler.mjs &
 
 echo "Starting server..."
-exec node scripts/custom-server.mjs
+exec node scripts/server-wrapper.mjs

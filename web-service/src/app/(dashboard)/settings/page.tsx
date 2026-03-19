@@ -2,13 +2,15 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, systemState, landlords } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { User, Mail, Calendar, Shield, Settings2, Building2 } from "lucide-react";
+import { User, Mail, Calendar, Shield, Settings2, Building2, Printer } from "lucide-react";
 import { redirect } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
+import { TIMEZONE } from "@/lib/constants";
 import Image from "next/image";
 import { SettingsForm } from "./SettingsForm";
 import { AnalysisStartDateForm } from "./AnalysisStartDateForm";
 import { LandlordForm } from "./LandlordForm";
+import { PrinterSection } from "./PrinterSection";
 
 export default async function SettingsPage() {
     const session = await auth();
@@ -100,7 +102,7 @@ export default async function SettingsPage() {
                                 <p className="text-xs text-slate-500">Member Since</p>
                                 <p className="font-medium">
                                     {user.createdAt 
-                                        ? formatInTimeZone(user.createdAt, "Pacific/Auckland", "d MMM yyyy")
+                                        ? formatInTimeZone(user.createdAt, TIMEZONE, "d MMM yyyy")
                                         : "Unknown"
                                     }
                                 </p>
@@ -181,6 +183,19 @@ export default async function SettingsPage() {
                             </p>
                         </div>
                         <LandlordForm landlords={allLandlords} />
+                    </div>
+
+                    <div className="glass rounded-2xl overflow-hidden mt-6">
+                        <div className="p-5 border-b border-slate-700/50">
+                            <h2 className="font-semibold text-lg flex items-center gap-2">
+                                <Printer className="w-5 h-5 text-cyan-400" />
+                                Printer
+                            </h2>
+                            <p className="text-sm text-slate-400 mt-1">
+                                Receipt printer connection and weekly balance printing
+                            </p>
+                        </div>
+                        <PrinterSection />
                     </div>
                 </>
             )}

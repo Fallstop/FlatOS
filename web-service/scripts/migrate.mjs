@@ -234,7 +234,7 @@ function applyMissingSchemaChanges() {
 
 try {
     // First, handle push-created databases
-    const wasInitialized = initializeMigrationsForPushDatabase();
+    initializeMigrationsForPushDatabase();
 
     // Apply any missing schema changes for push databases
     applyMissingSchemaChanges();

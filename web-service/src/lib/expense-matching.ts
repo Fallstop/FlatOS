@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { expenseMatchingRules, expenseTransactions, expenseCategories, transactions } from "./db/schema";
-import { eq, and, desc, isNull, or } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import type { Transaction, ExpenseMatchingRule } from "./db/schema";
 
 interface ParsedRawData {
@@ -230,13 +230,7 @@ export async function processTransactionForExpenses(transactionId: string): Prom
  * Re-match all non-manual expense transactions
  */
 export async function rematchAllExpenseTransactions(): Promise<{ matched: number; total: number }> {
-    // Get all outgoing transactions
-    const allTxs = await db
-        .select()
-        .from(transactions)
-        .where(eq(transactions.amount, -1)); // This won't work - need lt
-
-    // Actually, let's fetch all and filter
+    // Fetch all and filter for outgoing transactions
     const txList = await db.select().from(transactions);
     const outgoingTxs = txList.filter(tx => tx.amount < 0);
 

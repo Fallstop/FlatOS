@@ -2,8 +2,8 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/lib/db";
-import { eq, and, isNull } from "drizzle-orm";
-import { users, accounts } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { users } from "@/lib/db/schema";
 
 // Check if a user is whitelisted (exists in our users table)
 async function isWhitelisted(email: string): Promise<boolean> {

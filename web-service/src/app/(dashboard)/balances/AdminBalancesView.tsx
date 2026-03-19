@@ -1,186 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { User, Clock, CheckCircle2, AlertCircle, X, ChevronRight, Dot } from "lucide-react";
-import { format } from "date-fns";
+import { User, Clock } from "lucide-react";
 import type { FlatmateBalance, WeeklyObligation } from "@/lib/calculations";
 import { PaymentHistoryChart } from "@/components/PaymentHistoryChart";
 import { PaymentSummaryGrid } from "@/components/PaymentStatusCard";
-import { TransactionTable, type TransactionRowData } from "@/components/TransactionRow";
+import { WeekRow } from "@/components/WeekRow";
+import { WeekTransactionsModal } from "@/components/WeekTransactionsModal";
 
 interface AdminBalancesViewProps {
     flatmates: FlatmateBalance[];
     currentUserId?: string;
-}
-
-function formatCurrency(amount: number): string {
-    return new Intl.NumberFormat("en-NZ", {
-        style: "currency",
-        currency: "NZD",
-    }).format(amount);
-}
-
-function WeekTransactionsModal({
-    week,
-    onClose
-}: {
-    week: WeeklyObligation;
-    onClose: () => void;
-}) {
-    const isPaid = week.amountPaid >= week.amountDue * 0.95;
-    const isOverpaid = week.amountPaid > week.amountDue * 1.05;
-    const isPartial = week.amountPaid > 0 && week.amountPaid < week.amountDue * 0.95;
-    const isInProgress = week.isInProgress ?? false;
-
-    return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={onClose}
-        >
-            <div
-                className="glass w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="p-5 border-b border-slate-700/50 flex items-start justify-between">
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h2 className="text-lg font-semibold">
-                                {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM yyyy")}
-                            </h2>
-                            {isInProgress && (
-                                <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
-                                    In Progress
-                                </span>
-                            )}
-                        </div>
-                        <p className="text-sm text-slate-400 mt-1">
-                            Due {format(week.dueDate, "EEEE, d MMM")}
-                        </p>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
-                    >
-                        <X className="w-5 h-5 text-slate-400" />
-                    </button>
-                </div>
-
-                {/* Summary */}
-                <div className="p-5 border-b border-slate-700/50 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        {isInProgress ? (
-                            <Clock className="w-6 h-6 text-teal-400" />
-                        ) : isPaid ? (
-                            <CheckCircle2 className={`w-6 h-6 ${isOverpaid ? "text-cyan-400" : "text-emerald-400"}`} />
-                        ) : isPartial ? (
-                            <Clock className="w-6 h-6 text-amber-400" />
-                        ) : (
-                            <AlertCircle className="w-6 h-6 text-rose-400" />
-                        )}
-                        <div>
-                            <p className="text-sm text-slate-400">Status</p>
-                            <p className="font-medium">
-                                {isInProgress ? "In Progress" : isOverpaid ? "Overpaid" : isPaid ? "Paid" : isPartial ? "Partial" : "Unpaid"}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <p>
-                            <span className={isPaid ? "text-emerald-400" : isPartial ? "text-amber-400" : "text-slate-400"}>
-                                {formatCurrency(week.amountPaid)}
-                            </span>
-                            <span className="text-slate-500"> / </span>
-                            <span className="text-slate-400">{formatCurrency(week.amountDue)}</span>
-                        </p>
-                        <p className={`text-sm ${week.balance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            {week.balance >= 0 ? "+" : ""}{formatCurrency(week.balance)}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Transactions */}
-                <div className="p-5 max-h-80 overflow-y-auto">
-                    <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">
-                        {week.allAccountTransactions.length} Transaction{week.allAccountTransactions.length !== 1 ? "s" : ""} to account
-                        {week.allAccountTransactions.some(tx => tx.isRentPayment) && (
-                            <>
-                                <Dot className="inline"/>
-                                <span className="text-emerald-400">
-                                    {week.allAccountTransactions.filter(tx => tx.isRentPayment).length} identified as rent
-                                </span>
-                            </>
-                        )}
-                    </p>
-                    <TransactionTable
-                        transactions={week.allAccountTransactions as TransactionRowData[]}
-                        showMatch={true}
-                        compact={true}
-                        emptyMessage="No transactions this week"
-                    />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function WeekRow({ week, onClick }: {
-    week: WeeklyObligation;
-    onClick: () => void;
-}) {
-    const isPaid = week.amountPaid >= week.amountDue * 0.95;
-    const isOverpaid = week.amountPaid > week.amountDue * 1.05;
-    const isPartial = week.amountPaid > 0 && week.amountPaid < week.amountDue * 0.95;
-    const isInProgress = week.isInProgress ?? false;
-
-    return (
-        <button
-            onClick={onClick}
-            className={`w-full flex items-center justify-between p-4 hover:bg-slate-700/20 transition-colors border-b border-slate-700/30 last:border-b-0 ${isInProgress ? "bg-teal-900/20" : ""}`}
-        >
-            <div className="flex items-center gap-3">
-                {isInProgress ? (
-                    <Clock className="w-5 h-5 text-teal-400" />
-                ) : isPaid ? (
-                    <CheckCircle2 className={`w-5 h-5 ${isOverpaid ? "text-cyan-400" : "text-emerald-400"}`} />
-                ) : isPartial ? (
-                    <Clock className="w-5 h-5 text-amber-400" />
-                ) : (
-                    <AlertCircle className="w-5 h-5 text-rose-400" />
-                )}
-                <div className="text-left">
-                    <div className="flex items-center gap-2">
-                        <p className="font-medium">
-                            {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM")}
-                        </p>
-                        {isInProgress && (
-                            <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
-                                In Progress
-                            </span>
-                        )}
-                    </div>
-                    <p className="text-sm text-slate-400">
-                        Due {format(week.dueDate, "EEEE, d MMM")}
-                    </p>
-                </div>
-            </div>
-            <div className="flex items-center gap-3">
-                <div className="text-right">
-                    <p>
-                        <span className={isPaid ? "text-emerald-400" : isPartial ? "text-amber-400" : "text-slate-400"}>
-                            {formatCurrency(week.amountPaid)}
-                        </span>
-                        <span className="text-slate-500"> / </span>
-                        <span className="text-slate-400">{formatCurrency(week.amountDue)}</span>
-                    </p>
-                    <p className={`text-sm ${week.balance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {week.balance >= 0 ? "+" : ""}{formatCurrency(week.balance)}
-                    </p>
-                </div>
-                <ChevronRight className="w-5 h-5 text-slate-500" />
-            </div>
-        </button>
-    );
 }
 
 function WeeklyHistory({ balance }: { balance: FlatmateBalance }) {
@@ -218,9 +48,9 @@ function WeeklyHistory({ balance }: { balance: FlatmateBalance }) {
             </div>
 
             {selectedWeek && (
-                <WeekTransactionsModal 
-                    week={selectedWeek} 
-                    onClose={() => setSelectedWeek(null)} 
+                <WeekTransactionsModal
+                    week={selectedWeek}
+                    onClose={() => setSelectedWeek(null)}
                 />
             )}
         </>
@@ -261,7 +91,7 @@ export function AdminBalancesView({ flatmates, currentUserId }: AdminBalancesVie
                                 View cumulative payments vs amount due over time
                             </p>
                         </div>
-                        
+
                         {/* Flatmate Selector */}
                         <div className="relative">
                             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />

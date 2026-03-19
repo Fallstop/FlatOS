@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import type { ExpenseCategory } from "@/lib/db/schema";
 import { addExpenseCategoryAction, updateExpenseCategoryAction } from "@/lib/expense-actions";
 import { availableIcons, availableColors } from "@/lib/expense-ui";
+
+const subscribe = () => () => {};
+const getSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 interface CategoryDialogProps {
     category: ExpenseCategory | null;
@@ -16,12 +20,7 @@ interface CategoryDialogProps {
 export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProps) {
     const [isPending, startTransition] = useTransition();
     const [error, setError] = useState<string | null>(null);
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-        return () => setMounted(false);
-    }, []);
+    const mounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();

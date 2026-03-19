@@ -1,8 +1,9 @@
 import { db } from "./db";
 import { expenseCategories, expenseTransactions, transactions } from "./db/schema";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import type { ExpenseCategory, Transaction, ExpenseTransaction } from "./db/schema";
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, subDays, differenceInDays, subMonths } from "date-fns";
+import { startOfWeek, startOfMonth, endOfMonth, startOfDay, subDays, differenceInDays, subMonths } from "date-fns";
+import { WEEK_STARTS_ON } from "./constants";
 
 export interface ExpenseCategorySummary {
     category: ExpenseCategory;
@@ -56,7 +57,7 @@ export async function getExpenseSummary(
 
     for (const category of categories) {
         // Build the query for expense transactions in this category
-        let query = db
+        const query = db
             .select({
                 transactionId: expenseTransactions.transactionId,
                 amount: transactions.amount,
@@ -405,9 +406,6 @@ export async function getMonthlyExpenseBreakdown(
 
     for (let i = months - 1; i >= 0; i--) {
         const monthDate = subMonths(now, i);
-        const start = startOfMonth(monthDate);
-        const end = endOfMonth(monthDate);
-
         const txs = await db
             .select({
                 amount: transactions.amount,
@@ -416,13 +414,7 @@ export async function getMonthlyExpenseBreakdown(
             .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
             .where(eq(expenseTransactions.categoryId, categoryId));
 
-        const filteredTxs = txs.filter(tx => {
-            // This is a workaround since we can't do complex date comparisons in the query
-            // In a real app, you'd want to do this in SQL
-            return true;
-        });
-
-        const monthTotal = filteredTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+        const monthTotal = txs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
 
         results.push({
             month: monthDate.toLocaleDateString("en-NZ", { month: "short", year: "2-digit" }),
@@ -518,7 +510,7 @@ export async function getWeeklyExpenseData(
     const weeklyMap = new Map<string, number>();
 
     filteredTxs.forEach(tx => {
-        const weekStart = startOfWeek(tx.date, { weekStartsOn: 6 });
+        const weekStart = startOfWeek(tx.date, { weekStartsOn: WEEK_STARTS_ON });
         const weekKey = weekStart.toISOString().split('T')[0];
         const current = weeklyMap.get(weekKey) || 0;
         weeklyMap.set(weekKey, current + Math.abs(tx.amount));
@@ -526,7 +518,7 @@ export async function getWeeklyExpenseData(
 
     // Fill in all weeks in the range
     const results: WeeklyExpenseData[] = [];
-    const currentWeek = startOfWeek(start, { weekStartsOn: 6 });
+    const currentWeek = startOfWeek(start, { weekStartsOn: WEEK_STARTS_ON });
     const endNormalized = new Date(end);
     endNormalized.setHours(23, 59, 59, 999);
 
@@ -636,7 +628,7 @@ export async function getWeeklyExpenseDataAllCategories(
     const weeklyMap = new Map<string, Map<string, number>>();
 
     filteredTxs.forEach(tx => {
-        const weekStart = startOfWeek(tx.date, { weekStartsOn: 6 });
+        const weekStart = startOfWeek(tx.date, { weekStartsOn: WEEK_STARTS_ON });
         const weekKey = weekStart.toISOString().split('T')[0];
 
         if (!weeklyMap.has(weekKey)) {
@@ -650,7 +642,7 @@ export async function getWeeklyExpenseDataAllCategories(
 
     // Fill in all weeks in the range
     const results: WeeklyExpenseDataAllCategories[] = [];
-    const currentWeek = startOfWeek(start, { weekStartsOn: 6 });
+    const currentWeek = startOfWeek(start, { weekStartsOn: WEEK_STARTS_ON });
     const endNormalized = new Date(end);
     endNormalized.setHours(23, 59, 59, 999);
 

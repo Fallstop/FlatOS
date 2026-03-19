@@ -5,22 +5,20 @@ import { useRouter } from "next/navigation";
 import { Tag } from "lucide-react";
 import { formatInTimeZone } from "date-fns-tz";
 import type { ExpenseTransactionWithDetails } from "@/lib/expense-calculations";
-import type { ExpenseCategory, Transaction } from "@/lib/db/schema";
+import type { Transaction } from "@/lib/db/schema";
 import { TransactionDetailModal } from "@/components/TransactionDetailModal";
 import { getExpenseIcon, getColorClasses } from "@/lib/expense-ui";
 
-const TIMEZONE = "Pacific/Auckland";
+import { TIMEZONE } from "@/lib/constants";
 
 interface ExpenseTransactionListProps {
     transactions: ExpenseTransactionWithDetails[];
-    categories: ExpenseCategory[];
     emptyMessage?: string;
     showCategoryBadge?: boolean;
 }
 
 export function ExpenseTransactionList({
     transactions,
-    categories,
     emptyMessage = "No transactions found",
     showCategoryBadge = true,
 }: ExpenseTransactionListProps) {

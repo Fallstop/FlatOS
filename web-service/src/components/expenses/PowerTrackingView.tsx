@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Clock, TrendingUp, Calendar } from "lucide-react";
+import { Zap, Clock } from "lucide-react";
 import type { PowerBurnRate } from "@/lib/expense-calculations";
 import { formatDistanceToNow } from "date-fns";
 

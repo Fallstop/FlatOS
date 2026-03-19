@@ -4,34 +4,10 @@ import { eq, and, gte, lte, sql, isNotNull } from "drizzle-orm";
 import {
     eachWeekOfInterval,
     startOfWeek,
-    endOfWeek,
     startOfDay,
     isAfter,
 } from "date-fns";
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
-
-// Get timezone from environment, default to Pacific/Auckland
-const TIMEZONE = process.env.TIMEZONE || "Pacific/Auckland";
-
-/**
- * Get the start of a week (Saturday 00:00:00) in the configured timezone.
- * Returns a UTC Date that represents Saturday midnight in the timezone.
- */
-function getWeekStartInTimezone(date: Date): Date {
-    const zonedDate = toZonedTime(date, TIMEZONE);
-    const weekStartZoned = startOfWeek(zonedDate, { weekStartsOn: 6 });
-    return fromZonedTime(weekStartZoned, TIMEZONE);
-}
-
-/**
- * Get the end of a week (Friday 23:59:59.999) in the configured timezone.
- * Returns a UTC Date that represents Friday end-of-day in the timezone.
- */
-function getWeekEndInTimezone(date: Date): Date {
-    const zonedDate = toZonedTime(date, TIMEZONE);
-    const weekEndZoned = endOfWeek(zonedDate, { weekStartsOn: 6 });
-    return fromZonedTime(weekEndZoned, TIMEZONE);
-}
+import { WEEK_STARTS_ON, OVERPAID_THRESHOLD, PAID_THRESHOLD, getWeekStart, getWeekEnd } from "./constants";
 
 /**
  * Get the configured analysis start date from system settings.
@@ -214,7 +190,7 @@ async function calculateFlatmateBalance(
     // Week starts on Saturday, ends on Friday (rent paid on Friday)
     const weeks = eachWeekOfInterval(
         { start: startDate, end: endDate },
-        { weekStartsOn: 6 }
+        { weekStartsOn: WEEK_STARTS_ON }
     );
 
     const weeklyBreakdown: WeeklyObligation[] = [];
@@ -227,8 +203,8 @@ async function calculateFlatmateBalance(
 
     for (const weekStartRaw of weeks) {
         // Get timezone-aware week boundaries
-        const weekStart = getWeekStartInTimezone(weekStartRaw);
-        const weekEnd = getWeekEndInTimezone(weekStartRaw);
+        const weekStart = getWeekStart(weekStartRaw);
+        const weekEnd = getWeekEnd(weekStartRaw);
         const dueDate = getDueThursday(weekStartRaw);
 
         // Check if this week is in progress (due date hasn't passed yet)
@@ -450,11 +426,11 @@ export async function getCurrentWeekSummary(): Promise<
     }>
 > {
     const now = new Date();
-    const weekStartRaw = startOfWeek(now, { weekStartsOn: 6 });
+    const weekStartRaw = startOfWeek(now, { weekStartsOn: WEEK_STARTS_ON });
 
     // Use timezone-aware week boundaries (Sat 00:00 to Fri 23:59:59)
-    const weekStart = getWeekStartInTimezone(weekStartRaw);
-    const weekEnd = getWeekEndInTimezone(weekStartRaw);
+    const weekStart = getWeekStart(weekStartRaw);
+    const weekEnd = getWeekEnd(weekStartRaw);
 
     // Get all users (including admin)
     const flatmates = await db
@@ -494,9 +470,9 @@ export async function getCurrentWeekSummary(): Promise<
             let status: "paid" | "partial" | "unpaid" | "overpaid";
             if (amountPaid === 0 && amountDue > 0) {
                 status = "unpaid";
-            } else if (amountPaid >= amountDue * 1.1) {
+            } else if (amountPaid >= amountDue * OVERPAID_THRESHOLD) {
                 status = "overpaid";
-            } else if (amountPaid >= amountDue * 0.95) {
+            } else if (amountPaid >= amountDue * PAID_THRESHOLD) {
                 status = "paid";
             } else if (amountPaid > 0) {
                 status = "partial";

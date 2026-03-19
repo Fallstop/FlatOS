@@ -282,37 +282,20 @@ async function determineMatchType(
 
     const schedule = schedules[0];
     const expectedWeekly = schedule.weeklyAmount;
-    const expectedFortnightly = expectedWeekly * 2;
-    const expectedTrinightly = expectedWeekly * 3;
 
 
-    // Check if amount matches expected payment (±20% tolerance)
-    const tolerance = 0.2;
-    // Check weekly amount
-    if (isWithinTolerance(amount, expectedWeekly, tolerance)) {
-        return { type: "rent_payment", confidence: 0.95 };
-    }
-
-    // Check fortnightly amount
-    if (isWithinTolerance(amount, expectedFortnightly, tolerance)) {
+    // Any payment >= 60% of the weekly rent is considered a rent payment
+    if (amount >= expectedWeekly * 0.6) {
         return { type: "rent_payment", confidence: 0.9 };
     }
 
-    // Check fortnightly amount
-    if (isWithinTolerance(amount, expectedTrinightly, tolerance)) {
-        return { type: "rent_payment", confidence: 0.85 };
-    }
-
-
     // Smaller amounts might be grocery reimbursements
-    if (amount < expectedWeekly * 0.5) {
+    if (amount < expectedWeekly * 0.6) {
         return { type: "grocery_reimbursement", confidence: 0.7 };
     }
 
     return { type: "other", confidence: 0.6 };
 }
-
-import { isWithinTolerance } from "./utils";
 
 /**
  * Re-match all transactions that don't have a manual match

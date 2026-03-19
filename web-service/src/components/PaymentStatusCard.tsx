@@ -1,22 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { format } from "date-fns";
-import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, CheckCircle2, AlertCircle, Clock } from "lucide-react";
-import type { FlatmateBalance, WeeklyObligation } from "@/lib/calculations";
+import { TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
+import type { FlatmateBalance } from "@/lib/calculations";
+import { formatCurrency } from "@/lib/utils";
 
 interface PaymentStatusCardProps {
     balance: FlatmateBalance;
     isCurrentUser?: boolean;
     isSelected?: boolean;
     onSelect?: () => void;
-}
-
-function formatCurrency(amount: number): string {
-    return new Intl.NumberFormat("en-NZ", {
-        style: "currency",
-        currency: "NZD",
-    }).format(amount+0.0000002); // Avoid floating point issues to assume possitive amounts
 }
 
 function BalanceIndicator({ balance }: { balance: number }) {

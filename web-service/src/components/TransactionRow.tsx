@@ -5,7 +5,7 @@ import { CreditCard } from "lucide-react";
 import Image from "next/image";
 import { formatMoney } from "@/lib/utils";
 
-const TIMEZONE = "Pacific/Auckland";
+import { TIMEZONE } from "@/lib/constants";
 
 export interface TransactionRowData {
     id: string;

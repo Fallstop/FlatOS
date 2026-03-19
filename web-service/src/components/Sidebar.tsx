@@ -14,6 +14,7 @@ import {
     X,
     Wallet,
     Receipt,
+    CalendarDays,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -27,6 +28,7 @@ interface NavItem {
 const navItems: NavItem[] = [
     { href: "/", label: "Dashboard", icon: <Home className="w-5 h-5" /> },
     { href: "/balances", label: "Balances", icon: <Wallet className="w-5 h-5" /> },
+    { href: "/weekly", label: "Weekly View", icon: <CalendarDays className="w-5 h-5" /> },
     { href: "/transactions", label: "Transactions", icon: <CreditCard className="w-5 h-5" /> },
     { href: "/expenses", label: "Expenses", icon: <Receipt className="w-5 h-5" /> },
     { href: "/schedule", label: "Payment Schedule", icon: <Calendar className="w-5 h-5" /> },

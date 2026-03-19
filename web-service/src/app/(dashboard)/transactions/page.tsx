@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { transactions, users, systemState, landlords } from "@/lib/db/schema";
+import { transactions, users, systemState, landlords, expenseTransactions, expenseCategories } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { SyncButton } from "@/components/SyncButton";
 import { TransactionList } from "@/components/TransactionList";
@@ -53,6 +53,28 @@ export default async function TransactionsPage() {
         .leftJoin(landlords, eq(transactions.matchedLandlordId, landlords.id))
         .orderBy(desc(transactions.date));
 
+    // Get expense categories for each transaction
+    const expenseTxData = await db
+        .select({
+            transactionId: expenseTransactions.transactionId,
+            categoryName: expenseCategories.name,
+            categoryIcon: expenseCategories.icon,
+            categoryColor: expenseCategories.color,
+        })
+        .from(expenseTransactions)
+        .innerJoin(expenseCategories, eq(expenseTransactions.categoryId, expenseCategories.id));
+
+    // Build a lookup map: transactionId -> expense category info
+    const expenseCategoryMap = new Map(
+        expenseTxData.map((et) => [et.transactionId, { name: et.categoryName, icon: et.categoryIcon, color: et.categoryColor }])
+    );
+
+    // Merge expense category info into transactions
+    const txsWithExpenses = txsWithUsers.map((tx) => ({
+        ...tx,
+        expenseCategory: expenseCategoryMap.get(tx.id) ?? null,
+    }));
+
     // Get analysis start date
     const analysisStartSetting = await db
         .select()
@@ -83,7 +105,7 @@ export default async function TransactionsPage() {
             </div>
 
             <TransactionList
-                transactions={txsWithUsers}
+                transactions={txsWithExpenses}
                 flatmates={flatmates}
                 landlords={allLandlords}
                 analysisStartDate={analysisStartDate}

@@ -859,6 +859,94 @@ export async function updateLandlordAction(formData: FormData) {
     }
 }
 
+// ============================================
+// Print Server Actions
+// ============================================
+
+export async function getReceiptPreviewAction(): Promise<{ text?: string; error?: string }> {
+    const session = await auth();
+    if (!session?.user || session.user.role !== "admin") {
+        return { error: "Unauthorized - admin access required" };
+    }
+
+    try {
+        const { getCurrentWeekSummary } = await import("@/lib/calculations");
+        const { formatWeeklyReceipt } = await import("@/lib/receipt-formatter");
+
+        const summary = await getCurrentWeekSummary();
+        const text = formatWeeklyReceipt(summary);
+        return { text };
+    } catch (error) {
+        console.error("Error generating receipt preview:", error);
+        return { error: "Failed to generate receipt preview" };
+    }
+}
+
+async function sendToPrintServer(text: string): Promise<{ success?: boolean; sent?: number; total?: number; error?: string }> {
+    const port = process.env.PORT || "3000";
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (!cronSecret) {
+        return { error: "CRON_SECRET not configured" };
+    }
+
+    const response = await fetch(`http://localhost:${port}/print/send`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${cronSecret}`,
+        },
+        body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        return { error: body.error || `Print server returned ${response.status}` };
+    }
+
+    const result = await response.json();
+    return { success: true, sent: result.sent, total: result.total };
+}
+
+export async function triggerPrintAction(): Promise<{ success?: boolean; sent?: number; total?: number; error?: string }> {
+    const session = await auth();
+    if (!session?.user || session.user.role !== "admin") {
+        return { error: "Unauthorized - admin access required" };
+    }
+
+    try {
+        const preview = await getReceiptPreviewAction();
+        if (preview.error || !preview.text) {
+            return { error: preview.error || "Failed to generate receipt" };
+        }
+
+        return await sendToPrintServer(preview.text);
+    } catch (error) {
+        console.error("Error triggering print:", error);
+        return { error: "Failed to send print request" };
+    }
+}
+
+export async function triggerPrintWeekAction(
+    weekStartISO: string,
+    weekEndISO: string,
+    flatmates: Array<{ userName: string | null; amountDue: number; amountPaid: number }>,
+): Promise<{ success?: boolean; sent?: number; total?: number; error?: string }> {
+    const session = await auth();
+    if (!session?.user) {
+        return { error: "Unauthorized" };
+    }
+
+    try {
+        const { formatWeekViewReceipt } = await import("@/lib/receipt-formatter");
+        const text = formatWeekViewReceipt(new Date(weekStartISO), new Date(weekEndISO), flatmates);
+        return await sendToPrintServer(text);
+    } catch (error) {
+        console.error("Error triggering week print:", error);
+        return { error: "Failed to send print request" };
+    }
+}
+
 export async function deleteLandlordAction(id: string) {
     const session = await auth();
     if (!session?.user || session.user.role !== "admin") {

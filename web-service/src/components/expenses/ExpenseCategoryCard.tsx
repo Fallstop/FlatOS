@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { Tag } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ExpenseCategory } from "@/lib/db/schema";
-import { getExpenseIcon, getColorClasses } from "@/lib/expense-ui";
+import { expenseIconMap, getColorClasses } from "@/lib/expense-ui";
+
+function CategoryIcon({ iconName, className }: { iconName: string; className: string }) {
+    const Icon: LucideIcon = expenseIconMap[iconName] || Tag;
+    return <Icon className={className} />;
+}
 
 interface ExpenseCategoryCardProps {
     category: ExpenseCategory;
     totalAmount: number;
-    transactionCount: number;
     isSelected?: boolean;
     href?: string;
     subtitle?: string;
@@ -15,19 +20,17 @@ interface ExpenseCategoryCardProps {
 export function ExpenseCategoryCard({
     category,
     totalAmount,
-    transactionCount,
     isSelected,
     href,
     subtitle,
 }: ExpenseCategoryCardProps) {
-    const IconComponent = getExpenseIcon(category.icon);
     const colors = getColorClasses(category.color);
 
     const content = (
         <>
             <div className="flex items-center gap-3 mb-2">
                 <div className={`p-2 rounded-lg ${colors.bg}`}>
-                    <IconComponent className={`w-4 h-4 ${colors.text}`} />
+                    <CategoryIcon iconName={category.icon} className={`w-4 h-4 ${colors.text}`} />
                 </div>
                 <h3 className="font-semibold">{category.name}</h3>
             </div>
@@ -64,7 +67,7 @@ export function AddCategoryCard() {
             <div className="p-3 rounded-xl bg-slate-700/50">
                 <Tag className="w-5 h-5" />
             </div>
-            <span className="font-medium text-sm text-center">Use "Add Category" button in Rules Manager below</span>
+            <span className="font-medium text-sm text-center">Use &quot;Add Category&quot; button in Rules Manager below</span>
         </div>
     );
 }

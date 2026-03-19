@@ -1,54 +1,34 @@
 "use client";
 
 import { format } from "date-fns";
-import { CheckCircle2, AlertCircle, Clock, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, Clock } from "lucide-react";
 import { useState } from "react";
 import type { FlatmateBalance, WeeklyObligation } from "@/lib/calculations";
 import { PaymentHistoryChart } from "@/components/PaymentHistoryChart";
-
-interface BalanceDetailViewProps {
-    balance: FlatmateBalance;
-}
-
-function formatCurrency(amount: number): string {
-    return new Intl.NumberFormat("en-NZ", {
-        style: "currency",
-        currency: "NZD",
-    }).format(amount);
-}
+import { formatCurrency, getWeekPaymentStatus } from "@/lib/utils";
+import { WeekStatusIcon, weekPaidAmountColor } from "@/components/WeekStatusIcon";
 
 function WeekDetailRow({ week, isExpanded, onToggle }: {
     week: WeeklyObligation;
     isExpanded: boolean;
     onToggle: () => void;
 }) {
-    const isPaid = week.amountPaid >= week.amountDue * 0.95;
-    const isOverpaid = week.amountPaid > week.amountDue * 1.05;
-    const isPartial = week.amountPaid > 0 && week.amountPaid < week.amountDue * 0.95;
-    const isInProgress = week.isInProgress ?? false;
+    const status = getWeekPaymentStatus(week);
 
     return (
-        <div className={`border-b border-slate-700/30 last:border-b-0 ${isInProgress ? "bg-teal-900/20" : ""}`}>
+        <div className={`border-b border-slate-700/30 last:border-b-0 ${status === "in-progress" ? "bg-teal-900/20" : ""}`}>
             <button
                 onClick={onToggle}
                 className="w-full flex items-center justify-between p-4 hover:bg-slate-700/20 transition-colors"
             >
                 <div className="flex items-center gap-3">
-                    {isInProgress ? (
-                        <Clock className="w-5 h-5 text-teal-400" />
-                    ) : isPaid ? (
-                        <CheckCircle2 className={`w-5 h-5 ${isOverpaid ? "text-cyan-400" : "text-emerald-400"}`} />
-                    ) : isPartial ? (
-                        <Clock className="w-5 h-5 text-amber-400" />
-                    ) : (
-                        <AlertCircle className="w-5 h-5 text-rose-400" />
-                    )}
+                    <WeekStatusIcon status={status} />
                     <div className="text-left">
                         <div className="flex items-center gap-2">
                             <p className="font-medium">
                                 {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM yyyy")}
                             </p>
-                            {isInProgress && (
+                            {status === "in-progress" && (
                                 <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
                                     In Progress
                                 </span>
@@ -62,7 +42,7 @@ function WeekDetailRow({ week, isExpanded, onToggle }: {
                 <div className="flex items-center gap-4">
                     <div className="text-right">
                         <p>
-                            <span className={isPaid ? "text-emerald-400" : isPartial ? "text-amber-400" : "text-slate-400"}>
+                            <span className={weekPaidAmountColor(status)}>
                                 {formatCurrency(week.amountPaid)}
                             </span>
                             <span className="text-slate-500"> / </span>
@@ -108,7 +88,7 @@ function WeekDetailRow({ week, isExpanded, onToggle }: {
     );
 }
 
-export function BalanceDetailView({ balance }: BalanceDetailViewProps) {
+export function BalanceDetailView({ balance }: { balance: FlatmateBalance }) {
     const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
 
     const toggleWeek = (weekKey: string) => {

@@ -3,42 +3,46 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search, Filter, Download, ChevronDown, ChevronUp, X, RefreshCw, ArrowDownRight, ArrowUpRight, CreditCard } from "lucide-react";
-import { formatInTimeZone, toZonedTime } from "date-fns-tz";
-import { startOfDay, isSaturday, previousSaturday } from "date-fns";
+import { Search, Filter, Download, ChevronDown, ChevronUp, X, RefreshCw, ArrowDownRight, ArrowUpRight, CreditCard, Home, HandCoins } from "lucide-react";
+import { formatInTimeZone } from "date-fns-tz";
 import { TransactionDetailModal } from "./TransactionDetailModal";
 import { isRentPayment, formatMoney } from "@/lib/utils";
+import { TIMEZONE, getWeekStart } from "@/lib/constants";
+import { expenseIconMap, getColorClasses } from "@/lib/expense-ui";
+import { Tag } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { Transaction as TransactionType, User, Landlord } from "@/lib/db/schema";
 import Image from "next/image";
 
+export interface ExpenseCategoryInfo {
+    name: string;
+    icon: string;
+    color: string;
+}
+
+type TransactionWithExtra = TransactionType & {
+    matchedUserName?: string | null;
+    matchedLandlordName?: string | null;
+    expenseCategory?: ExpenseCategoryInfo | null;
+};
+
 interface TransactionListProps {
-    transactions: (TransactionType & { matchedUserName?: string | null; matchedLandlordName?: string | null })[];
+    transactions: TransactionWithExtra[];
     flatmates: Pick<User, "id" | "name" | "email">[];
     landlords?: Pick<Landlord, "id" | "name">[];
     analysisStartDate?: Date | null;
 }
 
-const TIMEZONE = "Pacific/Auckland";
 const ROW_HEIGHT = 72;
 
 type ListItem =
-    | { type: "transaction"; tx: TransactionType & { matchedUserName?: string | null; matchedLandlordName?: string | null }; index: number }
+    | { type: "transaction"; tx: TransactionWithExtra; index: number }
     | { type: "week-header"; weekStart: Date }
     | { type: "analysis-boundary"; date: Date };
 
-function getWeekStartSaturday(date: Date): Date {
-    const zonedDate = toZonedTime(date, TIMEZONE);
-    const startOfDayZoned = startOfDay(zonedDate);
-    
-    if (isSaturday(zonedDate)) {
-        return startOfDayZoned;
-    }
-    return previousSaturday(startOfDayZoned);
-}
-
 function crossesWeekBoundary(date1: Date, date2: Date): Date | null {
-    const weekStart1 = getWeekStartSaturday(date1);
-    const weekStart2 = getWeekStartSaturday(date2);
+    const weekStart1 = getWeekStart(date1);
+    const weekStart2 = getWeekStart(date2);
     
     if (weekStart1.getTime() !== weekStart2.getTime()) {
         return weekStart1.getTime() > weekStart2.getTime() ? weekStart1 : weekStart2;
@@ -59,11 +63,52 @@ function useIsDesktop() {
     return isDesktop;
 }
 
+function CategoryIcon({ iconName, className }: { iconName: string; className: string }) {
+    const Icon: LucideIcon = expenseIconMap[iconName] || Tag;
+    return <Icon className={className} />;
+}
+
+function ExpenseCategoryBadge({ category }: { category: ExpenseCategoryInfo }) {
+    const colors = getColorClasses(category.color);
+    return (
+        <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded w-fit ${colors.bg} ${colors.text} shrink-0`}>
+            <CategoryIcon iconName={category.icon} className="w-3 h-3" />
+            {category.name}
+        </span>
+    );
+}
+
+function TransactionCategoryBadge({ tx }: { tx: TransactionWithExtra }) {
+    if (tx.expenseCategory) {
+        return <ExpenseCategoryBadge category={tx.expenseCategory} />;
+    }
+    if (tx.matchType === "rent_payment" || tx.matchType === "landlord_payment") {
+        return (
+            <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded w-fit bg-orange-500/20 text-orange-400 shrink-0">
+                <Home className="w-3 h-3" />
+                Rent
+            </span>
+        );
+    }
+    if (tx.matchedUserId && tx.amount > 0) {
+        return (
+            <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded w-fit bg-emerald-500/20 text-emerald-400 shrink-0">
+                <HandCoins className="w-3 h-3" />
+                Reimbursement
+            </span>
+        );
+    }
+    if (tx.category) {
+        return <span className="badge badge-neutral text-xs">{tx.category}</span>;
+    }
+    return null;
+}
+
 export function TransactionList({ transactions, flatmates, landlords = [], analysisStartDate }: TransactionListProps) {
     const router = useRouter();
     const parentRef = useRef<HTMLDivElement>(null);
     const isDesktop = useIsDesktop();
-    const [selectedTransaction, setSelectedTransaction] = useState<(TransactionType & { matchedUserName?: string | null; matchedLandlordName?: string | null }) | null>(null);
+    const [selectedTransaction, setSelectedTransaction] = useState<TransactionWithExtra | null>(null);
 
     // Filters
     const [showFilters, setShowFilters] = useState(false);
@@ -560,12 +605,10 @@ export function TransactionList({ transactions, flatmates, landlords = [], analy
                                             </div>
                                         </div>
                                         
-                                        <div>
-                                            {tx.category && (
-                                                <span className="badge badge-neutral text-xs">{tx.category}</span>
-                                            )}
+                                        <div className="flex items-center">
+                                            <TransactionCategoryBadge tx={tx} />
                                         </div>
-                                        
+
                                         <div>
                                             {tx.matchedUserId ? (
                                                 <span className={`badge text-xs ${isRentPayment(tx.matchType) ? "badge-success" : "badge-neutral"}`}>
@@ -644,11 +687,12 @@ export function TransactionList({ transactions, flatmates, landlords = [], analy
                                             {tx.description}
                                         </div>
                                         
-                                        {/* Bottom row: Merchant and Match badge */}
+                                        {/* Bottom row: Merchant, Category badge, and Match badge */}
                                         <div className="flex items-center gap-2 mt-1">
                                             {tx.merchant && (
                                                 <span className="text-xs text-slate-500 truncate">{tx.merchant}</span>
                                             )}
+                                            <TransactionCategoryBadge tx={tx} />
                                             {tx.matchedUserId && (
                                                 <span className={`badge text-xs shrink-0 ${isRentPayment(tx.matchType) ? "badge-success" : "badge-neutral"}`}>
                                                     {tx.matchedUserName || "Matched"}

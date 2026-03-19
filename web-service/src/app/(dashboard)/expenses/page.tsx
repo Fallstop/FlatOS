@@ -12,6 +12,12 @@ import {
     getDailyExpenseDataAllCategories,
     getDailyExpenseData,
 } from "@/lib/expense-calculations";
+import type {
+    WeeklyExpenseDataAllCategories,
+    WeeklyExpenseData,
+    DailyExpenseDataAllCategories,
+    DailyExpenseData,
+} from "@/lib/expense-calculations";
 import { ExpenseCategoryCard } from "@/components/expenses/ExpenseCategoryCard";
 import { ExpenseBurnRates } from "@/components/expenses/ExpenseBurnRates";
 import { ExpenseTransactionList } from "@/components/expenses/ExpenseTransactionList";
@@ -122,7 +128,6 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                             <ExpenseCategoryCard
                                 category={category}
                                 totalAmount={summary?.totalAmount ?? 0}
-                                transactionCount={summary?.transactionCount ?? 0}
                                 isSelected={isSelected}
                                 href={categoryHref}
                                 subtitle={
@@ -144,10 +149,10 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                         : `${isMonthView ? "Daily" : "Weekly"} Expenses`}
                 </h2>
                 <ExpenseChart
-                    weeklyDataAllCategories={isMonthView ? undefined : chartDataAllCategories as any}
-                    weeklyData={isMonthView ? undefined : chartData as any}
-                    dailyDataAllCategories={isMonthView ? chartDataAllCategories as any : undefined}
-                    dailyData={isMonthView ? chartData as any : undefined}
+                    weeklyDataAllCategories={isMonthView ? undefined : chartDataAllCategories as WeeklyExpenseDataAllCategories[] | undefined}
+                    weeklyData={isMonthView ? undefined : chartData as WeeklyExpenseData[] | undefined}
+                    dailyDataAllCategories={isMonthView ? chartDataAllCategories as DailyExpenseDataAllCategories[] | undefined : undefined}
+                    dailyData={isMonthView ? chartData as DailyExpenseData[] | undefined : undefined}
                     selectedCategory={selectedCategory}
                 />
             </div>
@@ -170,7 +175,6 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                     <div className="flex-1 overflow-y-auto min-h-0">
                         <ExpenseTransactionList
                             transactions={expenseTransactions}
-                            categories={categories}
                             emptyMessage="No expense transactions found for this period"
                             showCategoryBadge={!selectedCategory}
                         />

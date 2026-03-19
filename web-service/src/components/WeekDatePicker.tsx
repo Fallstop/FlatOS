@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { DayPicker } from "react-day-picker";
 import { format, isSaturday, isFriday, previousSaturday, nextFriday } from "date-fns";
+import { WEEK_STARTS_ON } from "@/lib/constants";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import "react-day-picker/style.css";
 
@@ -142,7 +143,7 @@ export function WeekDatePicker({
                         selected={selectedDate}
                         onSelect={handleSelect}
                         defaultMonth={selectedDate}
-                        weekStartsOn={6}
+                        weekStartsOn={WEEK_STARTS_ON}
                         showOutsideDays
                         modifiers={{
                             validDay: isValidDay,

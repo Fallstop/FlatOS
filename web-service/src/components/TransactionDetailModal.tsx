@@ -8,6 +8,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import Image from "next/image";
 import { updateTransactionMatchAction } from "@/lib/actions";
 import { formatMoney } from "@/lib/utils";
+import { TIMEZONE } from "@/lib/constants";
 
 interface RawTransactionData {
     particulars?: string;
@@ -110,10 +111,10 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                                 Date & Time
                             </div>
                             <p className="text-lg font-semibold">
-                                {formatInTimeZone(transaction.date, "Pacific/Auckland", "d MMM yyyy")}
+                                {formatInTimeZone(transaction.date, TIMEZONE, "d MMM yyyy")}
                             </p>
                             <p className="text-sm text-slate-400">
-                                {formatInTimeZone(transaction.date, "Pacific/Auckland", "h:mm a 'NZDT'")}
+                                {formatInTimeZone(transaction.date, TIMEZONE, "h:mm a 'NZDT'")}
                             </p>
                         </div>
                     </div>

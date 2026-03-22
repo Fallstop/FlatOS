@@ -52,12 +52,18 @@ async fn main() -> Result<()> {
     if args.mock {
         info!("Mode: MOCK (Console)");
         let driver = ConsoleDriver::open(true);
-        run_service(driver, &args.url).await?;
+        run_service(driver, &args.url, None::<fn() -> Result<ConsoleDriver>>).await?;
     } else if let Some(ip) = args.ip {
         info!("Mode: NETWORK ({}:{})", ip, args.port);
         spawn_daily_reset(&ip);
         let driver = NetworkDriver::open(&ip, args.port, Some(Duration::from_secs(1)))?;
-        run_service(driver, &args.url).await?;
+        let reconnect_ip = ip.clone();
+        let reconnect_port = args.port;
+        run_service(driver, &args.url, Some(move || {
+            info!("Reconnecting to printer at {}:{}...", reconnect_ip, reconnect_port);
+            NetworkDriver::open(&reconnect_ip, reconnect_port, Some(Duration::from_secs(1)))
+                .map_err(|e| anyhow::anyhow!(e))
+        })).await?;
     } else {
         info!("Mode: USB");
         for device in nusb::list_devices().wait().unwrap() {
@@ -73,15 +79,16 @@ async fn main() -> Result<()> {
             );
         }
         let driver = NativeUsbDriver::open(0x0456, 0x0808)?;
-        run_service(driver, &args.url).await?;
+        run_service(driver, &args.url, None::<fn() -> Result<NativeUsbDriver>>).await?;
     }
 
     Ok(())
 }
 
-async fn run_service<D>(driver: D, url: &str) -> Result<()>
+async fn run_service<D, F>(driver: D, url: &str, reconnect: Option<F>) -> Result<()>
 where
     D: escpos::driver::Driver + Send + 'static,
+    F: Fn() -> Result<D>,
 {
     let mut printer = Printer::new(driver, Protocol::default(), None);
 
@@ -124,6 +131,28 @@ where
                                                 MAX_CONSECUTIVE_PRINT_FAILURES,
                                                 e
                                             );
+
+                                            // Attempt to reconnect the printer driver
+                                            if let Some(ref reconnect_fn) = reconnect {
+                                                match reconnect_fn() {
+                                                    Ok(new_driver) => {
+                                                        printer = Printer::new(new_driver, Protocol::default(), None);
+                                                        match printer.init() {
+                                                            Ok(_) => {
+                                                                info!("Printer reconnected successfully.");
+                                                                consecutive_print_failures = 0;
+                                                            }
+                                                            Err(e) => {
+                                                                warn!("Printer reconnected but init failed: {}", e);
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        warn!("Printer reconnect failed: {}", e);
+                                                    }
+                                                }
+                                            }
+
                                             if consecutive_print_failures
                                                 >= MAX_CONSECUTIVE_PRINT_FAILURES
                                             {

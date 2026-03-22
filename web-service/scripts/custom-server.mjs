@@ -79,8 +79,16 @@ const server = createServer((req, res) => {
     handle(req, res, parsedUrl);
 });
 
-// WebSocket server for printer clients (noServer so we don't steal Next.js HMR upgrades)
+// Let Next.js set up its HMR WebSocket handler on the server first
+app.setupWebSocketHandler(server);
+
+// WebSocket server for printer clients (noServer mode)
 const wss = new WebSocketServer({ noServer: true });
+
+// Prepend our own upgrade listener so /print/ws is handled by us,
+// and everything else falls through to Next.js's listener registered above.
+const listeners = server.listeners("upgrade");
+server.removeAllListeners("upgrade");
 
 server.on("upgrade", (req, socket, head) => {
     const { pathname, searchParams } = new URL(req.url, `http://localhost:${port}`);
@@ -97,8 +105,10 @@ server.on("upgrade", (req, socket, head) => {
             wss.emit("connection", ws, req);
         });
     } else {
-        // Let Next.js handle HMR and other WebSocket upgrades
-        app.getUpgradeHandler()(req, socket, head);
+        // Forward to Next.js HMR handler
+        for (const listener of listeners) {
+            listener.call(server, req, socket, head);
+        }
     }
 });
 

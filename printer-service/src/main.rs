@@ -7,10 +7,16 @@ use escpos::driver::{ConsoleDriver, NativeUsbDriver, NetworkDriver};
 use escpos::printer::Printer;
 use escpos::utils::Protocol;
 use futures_util::StreamExt;
-use log::{error, info};
+use log::{error, info, warn};
 use nusb::MaybeFuture;
+use rand::Rng;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+
+const MAX_CONSECUTIVE_PRINT_FAILURES: u32 = 5;
+const WS_BACKOFF_INITIAL: Duration = Duration::from_secs(1);
+const WS_BACKOFF_MAX: Duration = Duration::from_secs(30);
+const WS_READ_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -85,37 +91,81 @@ where
         }
     }
 
+    let mut consecutive_print_failures: u32 = 0;
+    let mut ws_backoff = WS_BACKOFF_INITIAL;
+
     loop {
         info!("Connecting to WebSocket...");
         match connect_async(url.into_client_request()?).await {
             Ok((ws_stream, _)) => {
                 info!("Connected!");
+                ws_backoff = WS_BACKOFF_INITIAL;
+
                 let (_write, mut read) = ws_stream.split();
 
-                while let Some(message) = read.next().await {
-                    match message {
-                        Ok(msg) => {
-                            if let Message::Text(text) = msg {
-                                info!("Received: {}", text);
-                                match print_ticket(&mut printer, &text) {
-                                    Ok(_) => info!("Printed ticket."),
-                                    Err(e) => error!("Print failed: {}", e),
+                loop {
+                    match tokio::time::timeout(WS_READ_TIMEOUT, read.next()).await {
+                        Ok(Some(message)) => match message {
+                            Ok(msg) => {
+                                if let Message::Text(text) = msg {
+                                    info!("Received: {}", text);
+                                    match print_ticket(&mut printer, &text) {
+                                        Ok(_) => {
+                                            info!("Printed ticket.");
+                                            consecutive_print_failures = 0;
+                                        }
+                                        Err(e) => {
+                                            consecutive_print_failures += 1;
+                                            error!(
+                                                "Print failed ({}/{}): {}",
+                                                consecutive_print_failures,
+                                                MAX_CONSECUTIVE_PRINT_FAILURES,
+                                                e
+                                            );
+                                            if consecutive_print_failures
+                                                >= MAX_CONSECUTIVE_PRINT_FAILURES
+                                            {
+                                                error!(
+                                                    "Printer appears disconnected after {} consecutive failures, exiting for restart",
+                                                    consecutive_print_failures
+                                                );
+                                                return Err(anyhow::anyhow!(
+                                                    "Printer disconnected"
+                                                ));
+                                            }
+                                        }
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                error!("WebSocket error: {}", e);
+                                break;
+                            }
+                        },
+                        Ok(None) => {
+                            info!("WebSocket stream ended.");
+                            break;
                         }
-                        Err(e) => {
-                            error!("Connection error: {}", e);
+                        Err(_) => {
+                            warn!(
+                                "No WebSocket message received in {:?}, reconnecting...",
+                                WS_READ_TIMEOUT
+                            );
                             break;
                         }
                     }
                 }
-                info!("Disconnected. Retrying in 5 seconds...");
             }
             Err(e) => {
-                error!("Connect failed: {}. Retrying in 5 seconds...", e);
+                error!("WebSocket connect failed: {}", e);
             }
         }
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let jitter = rand::rng().random_range(0..=1000);
+        let sleep_dur = ws_backoff + Duration::from_millis(jitter);
+        info!("Reconnecting in {:?}...", sleep_dur);
+        tokio::time::sleep(sleep_dur).await;
+        ws_backoff = (ws_backoff * 2).min(WS_BACKOFF_MAX);
     }
 }
 

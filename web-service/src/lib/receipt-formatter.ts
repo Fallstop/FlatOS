@@ -54,24 +54,65 @@ function formatReceiptBody(
     entries: Array<{ userName: string | null; amountDue: number; amountPaid: number; status: string }>,
     allTimeBalances?: AllTimeBalanceEntry[],
 ): string {
+    const W = 48;
+    const center = (s: string) => {
+        const pad = Math.max(0, Math.floor((W - s.length) / 2));
+        return " ".repeat(pad) + s;
+    };
+    const padRight = (label: string, value: string) => {
+        const gap = Math.max(1, W - label.length - value.length);
+        return label + " ".repeat(gap) + value;
+    };
+
+    // Build a lookup for all-time balances by name
+    const balanceByName = new Map<string, AllTimeBalanceEntry>();
+    if (allTimeBalances) {
+        for (const b of allTimeBalances) {
+            balanceByName.set(b.userName || "Unknown", b);
+        }
+    }
+
     const lines: string[] = [];
 
-    lines.push("================================");
-    lines.push("   FLAT WEEKLY BALANCE REPORT");
-    lines.push(`   ${format(weekStart, "EEE d MMM")} - ${format(weekEnd, "EEE d MMM yyyy")}`);
-    lines.push("================================");
+    lines.push("=".repeat(W));
+    lines.push(center("FLAT WEEKLY BALANCE REPORT"));
+    lines.push(center(`${format(weekStart, "EEE d MMM")} - ${format(weekEnd, "EEE d MMM yyyy")}`));
+    lines.push("=".repeat(W));
     lines.push("");
 
     let totalDue = 0;
     let totalPaid = 0;
 
     for (const entry of entries) {
-        if (entry.amountDue === 0 && entry.amountPaid === 0) continue;
+        const name = entry.userName || "Unknown";
+        const allTime = balanceByName.get(name);
+        const hasWeekActivity = entry.amountDue > 0 || entry.amountPaid > 0;
+        const hasAllTimeActivity = allTime && (allTime.totalDue > 0 || allTime.totalPaid > 0);
 
-        lines.push(entry.userName || "Unknown");
-        lines.push(`  Due:    $${entry.amountDue.toFixed(2)}`);
-        lines.push(`  Paid:   $${entry.amountPaid.toFixed(2)}`);
-        lines.push(`  Status: ${formatStatusText(entry.status, entry.amountPaid, entry.amountDue)}`);
+        if (!hasWeekActivity && !hasAllTimeActivity) continue;
+
+        const isBehind = allTime && allTime.balance < -0.01;
+
+        if (isBehind) {
+            lines.push(padRight(`>>> ${name}`, "<<<"));
+        } else {
+            lines.push(name);
+        }
+
+        if (hasWeekActivity) {
+            const status = formatStatusText(entry.status, entry.amountPaid, entry.amountDue);
+            lines.push(padRight("  This Week:", status));
+            lines.push(padRight("    Due:", `$${entry.amountDue.toFixed(2)}`));
+            lines.push(padRight("    Paid:", `$${entry.amountPaid.toFixed(2)}`));
+        }
+
+        if (allTime) {
+            lines.push(padRight("  All-Time:", formatBalanceAmount(allTime.balance)));
+            if (isBehind) {
+                lines.push(center("*** BEHIND ***"));
+            }
+        }
+
         lines.push("");
 
         totalDue += entry.amountDue;
@@ -80,41 +121,12 @@ function formatReceiptBody(
 
     const balance = totalPaid - totalDue;
 
-    lines.push("--------------------------------");
-    lines.push(`Total Due:  $${totalDue.toFixed(2)}`);
-    lines.push(`Total Paid: $${totalPaid.toFixed(2)}`);
-    lines.push(`Balance:   ${formatBalanceAmount(balance)}`);
-
-    // All-time balances section
-    if (allTimeBalances && allTimeBalances.length > 0) {
-        // Only show users who have any balance activity
-        const activeBalances = allTimeBalances.filter(b => b.totalDue > 0 || b.totalPaid > 0);
-        if (activeBalances.length > 0) {
-            lines.push("");
-            lines.push("================================");
-            lines.push("     ALL-TIME BALANCES");
-            lines.push("================================");
-            lines.push("");
-
-            for (const b of activeBalances) {
-                const name = b.userName || "Unknown";
-                const isBehind = b.balance < -0.01; // owes money
-
-                if (isBehind) {
-                    lines.push(`>>> ${name} <<<`);
-                    lines.push(`  Balance: ${formatBalanceAmount(b.balance)}`);
-                    lines.push(`  *** BEHIND ***`);
-                } else {
-                    lines.push(name);
-                    lines.push(`  Balance: ${formatBalanceAmount(b.balance)}`);
-                }
-                lines.push("");
-            }
-        }
-    }
-
-    lines.push("================================");
-    lines.push(`        Printed ${format(new Date(), "d MMM yyyy")}`);
+    lines.push("-".repeat(W));
+    lines.push(padRight("Week Due:", `$${totalDue.toFixed(2)}`));
+    lines.push(padRight("Week Paid:", `$${totalPaid.toFixed(2)}`));
+    lines.push(padRight("Week Balance:", formatBalanceAmount(balance)));
+    lines.push("=".repeat(W));
+    lines.push(center(`Printed ${format(new Date(), "d MMM yyyy")}`));
 
     return lines.join("\n");
 }

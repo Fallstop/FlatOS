@@ -6,7 +6,7 @@
  */
 export function ReceiptPreview({ text }: { text: string }) {
     return (
-        <div className="relative max-w-xs mx-auto">
+        <div className="relative max-w-sm mx-auto">
             {/* Torn top edge */}
             <div
                 className="h-3 w-full"

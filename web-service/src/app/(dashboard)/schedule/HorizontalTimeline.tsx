@@ -21,7 +21,6 @@ interface HorizontalTimelineProps {
 }
 
 const DAY_WIDTH = 4; // pixels per day
-const FLATMATE_COL_WIDTH = 120;
 
 // Color palette for different payment amounts
 const AMOUNT_COLORS = [
@@ -371,7 +370,7 @@ export function HorizontalTimeline({ flatmates, schedulesByUser, isAdmin, analys
                 )}
 
                 {/* Navigation */}
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => scrollByMonths(-3)}
@@ -403,7 +402,7 @@ export function HorizontalTimeline({ flatmates, schedulesByUser, isAdmin, analys
                             <Download className="w-4 h-4" />
                             Export
                         </button>
-                        <span className="text-sm text-slate-400">
+                        <span className="text-sm text-slate-400 hidden sm:inline">
                             Scroll horizontally to navigate{isAdmin ? " • Drag schedules to copy" : ""}
                         </span>
                     </div>
@@ -413,14 +412,14 @@ export function HorizontalTimeline({ flatmates, schedulesByUser, isAdmin, analys
                 <div className="glass rounded-xl overflow-hidden">
                     <div className="flex">
                         {/* Sticky flatmate column */}
-                        <div className="sticky left-0 z-20 bg-slate-800 border-r border-slate-700" style={{ width: FLATMATE_COL_WIDTH }}>
-                            <div className="h-10 border-b border-slate-700 flex items-center px-3 text-xs font-medium text-slate-400">
+                        <div className="sticky left-0 z-20 bg-slate-800 border-r border-slate-700 w-fit">
+                            <div className="h-10 border-b border-slate-700 flex items-center px-3 text-xs font-medium text-slate-400 whitespace-nowrap">
                                 Flatmate
                             </div>
                             {flatmates.map((flatmate) => (
-                                <div 
-                                    key={flatmate.id} 
-                                    className="h-10 border-b border-slate-800 flex items-center px-3 text-sm text-slate-300"
+                                <div
+                                    key={flatmate.id}
+                                    className="h-10 border-b border-slate-800 flex items-center px-3 text-sm text-slate-300 whitespace-nowrap"
                                 >
                                     {flatmate.name?.split(" ")[0] || flatmate.email.split("@")[0]}
                                 </div>

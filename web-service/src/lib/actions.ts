@@ -863,6 +863,21 @@ export async function updateLandlordAction(formData: FormData) {
 // Print Server Actions
 // ============================================
 
+export async function getPrinterTokenAction(): Promise<{ token?: string; error?: string }> {
+    const session = await auth();
+    if (!session?.user || session.user.role !== "admin") {
+        return { error: "Unauthorized - admin access required" };
+    }
+
+    const { getPrinterToken } = await import("@/lib/printer-token");
+    const token = getPrinterToken();
+    if (!token) {
+        return { error: "CRON_SECRET not configured" };
+    }
+
+    return { token };
+}
+
 export async function getReceiptPreviewAction(): Promise<{ text?: string; error?: string }> {
     const session = await auth();
     if (!session?.user || session.user.role !== "admin") {
@@ -870,11 +885,20 @@ export async function getReceiptPreviewAction(): Promise<{ text?: string; error?
     }
 
     try {
-        const { getCurrentWeekSummary } = await import("@/lib/calculations");
+        const { getCurrentWeekSummary, calculateAllBalances } = await import("@/lib/calculations");
         const { formatWeeklyReceipt } = await import("@/lib/receipt-formatter");
 
         const summary = await getCurrentWeekSummary();
-        const text = formatWeeklyReceipt(summary);
+        const balances = await calculateAllBalances();
+
+        const allTimeBalances = balances.flatmates.map((f) => ({
+            userName: f.userName,
+            totalDue: f.totalDue,
+            totalPaid: f.totalPaid,
+            balance: f.balance,
+        }));
+
+        const text = formatWeeklyReceipt(summary, allTimeBalances);
         return { text };
     } catch (error) {
         console.error("Error generating receipt preview:", error);
@@ -939,7 +963,17 @@ export async function triggerPrintWeekAction(
 
     try {
         const { formatWeekViewReceipt } = await import("@/lib/receipt-formatter");
-        const text = formatWeekViewReceipt(new Date(weekStartISO), new Date(weekEndISO), flatmates);
+        const { calculateAllBalances } = await import("@/lib/calculations");
+
+        const balances = await calculateAllBalances();
+        const allTimeBalances = balances.flatmates.map((f) => ({
+            userName: f.userName,
+            totalDue: f.totalDue,
+            totalPaid: f.totalPaid,
+            balance: f.balance,
+        }));
+
+        const text = formatWeekViewReceipt(new Date(weekStartISO), new Date(weekEndISO), flatmates, allTimeBalances);
         return await sendToPrintServer(text);
     } catch (error) {
         console.error("Error triggering week print:", error);

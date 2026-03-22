@@ -45,9 +45,8 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
     };
 
     const dialogContent = (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative w-full max-w-md glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="w-full max-w-md glass rounded-2xl overflow-hidden animate-in fade-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
                 <form onSubmit={handleSubmit}>
                     <div className="p-5 border-b border-slate-700/50">
                         <h2 className="font-semibold text-lg">
@@ -64,7 +63,7 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
                                 defaultValue={category?.name ?? ""}
                                 required
                                 placeholder="e.g., Power, Groceries"
-                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                                className="w-full px-3 py-3 bg-slate-700/50 border border-slate-600 rounded-xl focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-colors"
                             />
                         </div>
 
@@ -74,7 +73,7 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
                             <select
                                 name="icon"
                                 defaultValue={category?.icon ?? "Tag"}
-                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                                className="w-full px-3 py-3 bg-slate-700/50 border border-slate-600 rounded-xl focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-colors"
                             >
                                 {availableIcons.map((icon) => (
                                     <option key={icon} value={icon}>
@@ -90,7 +89,7 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
                             <select
                                 name="color"
                                 defaultValue={category?.color ?? "slate"}
-                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                                className="w-full px-3 py-3 bg-slate-700/50 border border-slate-600 rounded-xl focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-colors"
                             >
                                 {availableColors.map((color) => (
                                     <option key={color} value={color}>
@@ -107,7 +106,7 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
                                 name="sortOrder"
                                 type="number"
                                 defaultValue={category?.sortOrder ?? 0}
-                                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg"
+                                className="w-full px-3 py-3 bg-slate-700/50 border border-slate-600 rounded-xl focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-colors"
                             />
                             <p className="text-xs text-slate-500 mt-1">
                                 Lower numbers appear first
@@ -131,7 +130,7 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
 
                     {/* Error */}
                     {error && (
-                        <div className="mx-5 mb-4 p-3 rounded-xl bg-rose-500/20 text-rose-400 text-sm">
+                        <div className="mx-5 mb-4 p-3 rounded-xl bg-rose-500/20 border border-rose-500/50 text-rose-400 text-sm">
                             {error}
                         </div>
                     )}
@@ -149,7 +148,7 @@ export function CategoryDialog({ category, onClose, onSave }: CategoryDialogProp
                         <button
                             type="submit"
                             disabled={isPending}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 transition-colors disabled:opacity-50"
                         >
                             {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                             {category ? "Update" : "Create"} Category

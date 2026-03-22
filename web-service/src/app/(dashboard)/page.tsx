@@ -152,7 +152,7 @@ export default async function DashboardPage() {
             </div>
 
             {/* Stats Grid */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${landlordSummary.totalPaid > 0 ? "lg:grid-cols-5" : "lg:grid-cols-4"} gap-4 mb-8`}>
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${landlordSummary.totalPaid > 0 ? "md:grid-cols-3 lg:grid-cols-5" : "lg:grid-cols-4"} gap-4 mb-8`}>
                 <div className="animate-fade-in-up stagger-1"><StatCard
                     title="Total Money In"
                     value={`$${formatMoney(totalIn)}`}

@@ -1,0 +1,27 @@
+Template: printer-service/ws-url
+Type: string
+Description: WebSocket URL to connect to:
+ The full WebSocket URL the printer service will connect to
+ for receiving print jobs (e.g. wss://example.com/ws).
+
+Template: printer-service/printer-mode
+Type: select
+Choices: usb, network, mock
+Default: usb
+Description: Printer connection mode:
+ How the printer is connected to this device.
+ .
+  usb     - USB thermal printer (default)
+  network - Network printer via TCP
+  mock    - Console output for testing
+
+Template: printer-service/network-ip
+Type: string
+Description: Network printer IP address:
+ The IP address of the network printer (only used in network mode).
+
+Template: printer-service/network-port
+Type: string
+Default: 9100
+Description: Network printer port:
+ The TCP port of the network printer (only used in network mode).

@@ -16,12 +16,9 @@ export function SyncButton({ isAdmin, lastSyncTime, canRefresh, nextRefreshAt }:
     const [result, setResult] = useState<{ success?: boolean; message?: string } | null>(null);
 
     const handleSync = () => {
-        console.log("[SyncButton] handleSync clicked");
         setResult(null);
         startTransition(async () => {
-            console.log("[SyncButton] Calling syncTransactionsAction...");
             const res = await syncTransactionsAction();
-            console.log("[SyncButton] Got response:", res);
             if ("error" in res) {
                 setResult({ success: false, message: res.error as string });
             } else {

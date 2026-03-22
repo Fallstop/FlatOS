@@ -16,6 +16,13 @@ interface WeekFlatmateEntry {
     amountPaid: number;
 }
 
+export interface AllTimeBalanceEntry {
+    userName: string | null;
+    totalDue: number;
+    totalPaid: number;
+    balance: number; // positive = credit, negative = owes
+}
+
 function deriveStatus(entry: WeekFlatmateEntry): "paid" | "partial" | "unpaid" | "overpaid" {
     if (entry.amountPaid === 0 && entry.amountDue > 0) return "unpaid";
     if (entry.amountPaid >= entry.amountDue * OVERPAID_THRESHOLD) return "overpaid";
@@ -34,10 +41,18 @@ function formatStatusText(status: string, paid: number, due: number): string {
     }
 }
 
+function formatBalanceAmount(amount: number): string {
+    if (amount >= 0) {
+        return `$${amount.toFixed(2)}`;
+    }
+    return `-$${Math.abs(amount).toFixed(2)}`;
+}
+
 function formatReceiptBody(
     weekStart: Date,
     weekEnd: Date,
     entries: Array<{ userName: string | null; amountDue: number; amountPaid: number; status: string }>,
+    allTimeBalances?: AllTimeBalanceEntry[],
 ): string {
     const lines: string[] = [];
 
@@ -68,7 +83,36 @@ function formatReceiptBody(
     lines.push("--------------------------------");
     lines.push(`Total Due:  $${totalDue.toFixed(2)}`);
     lines.push(`Total Paid: $${totalPaid.toFixed(2)}`);
-    lines.push(`Balance:   ${balance >= 0 ? "" : "-"}$${Math.abs(balance).toFixed(2)}`);
+    lines.push(`Balance:   ${formatBalanceAmount(balance)}`);
+
+    // All-time balances section
+    if (allTimeBalances && allTimeBalances.length > 0) {
+        // Only show users who have any balance activity
+        const activeBalances = allTimeBalances.filter(b => b.totalDue > 0 || b.totalPaid > 0);
+        if (activeBalances.length > 0) {
+            lines.push("");
+            lines.push("================================");
+            lines.push("     ALL-TIME BALANCES");
+            lines.push("================================");
+            lines.push("");
+
+            for (const b of activeBalances) {
+                const name = b.userName || "Unknown";
+                const isBehind = b.balance < -0.01; // owes money
+
+                if (isBehind) {
+                    lines.push(`>>> ${name} <<<`);
+                    lines.push(`  Balance: ${formatBalanceAmount(b.balance)}`);
+                    lines.push(`  *** BEHIND ***`);
+                } else {
+                    lines.push(name);
+                    lines.push(`  Balance: ${formatBalanceAmount(b.balance)}`);
+                }
+                lines.push("");
+            }
+        }
+    }
+
     lines.push("================================");
     lines.push(`        Printed ${format(new Date(), "d MMM yyyy")}`);
 
@@ -78,12 +122,13 @@ function formatReceiptBody(
 /**
  * Format the current week summary (from getCurrentWeekSummary) as a receipt.
  */
-export function formatWeeklyReceipt(summary: WeekSummaryEntry[]): string {
+export function formatWeeklyReceipt(summary: WeekSummaryEntry[], allTimeBalances?: AllTimeBalanceEntry[]): string {
     const now = new Date();
     return formatReceiptBody(
         getWeekStart(now),
         getWeekEnd(now),
         summary,
+        allTimeBalances,
     );
 }
 
@@ -95,10 +140,11 @@ export function formatWeekViewReceipt(
     weekStart: Date,
     weekEnd: Date,
     flatmates: WeekFlatmateEntry[],
+    allTimeBalances?: AllTimeBalanceEntry[],
 ): string {
     const entries = flatmates.map((f) => ({
         ...f,
         status: deriveStatus(f),
     }));
-    return formatReceiptBody(weekStart, weekEnd, entries);
+    return formatReceiptBody(weekStart, weekEnd, entries, allTimeBalances);
 }

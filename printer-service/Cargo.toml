@@ -15,3 +15,16 @@ anyhow = "1.0"
 url = "2.4"
 nusb = "0.2.1"
 rustls = "0.23.36"
+
+[package.metadata.deb]
+maintainer = "Jasper M-W"
+copyright = "2026, Jasper M-W"
+depends = "libc6 (>= 2.31), debconf"
+section = "utility"
+priority = "optional"
+maintainer-scripts = "debian/"
+assets = [
+    ["target/release/printer-service", "usr/bin/", "755"],
+    ["debian/service", "lib/systemd/system/printer-service.service", "644"],
+]
+conf-files = ["/etc/default/printer-service"]

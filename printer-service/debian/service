@@ -1,0 +1,14 @@
+[Unit]
+Description=ESC/POS Printer Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/printer-service
+ExecStart=/usr/bin/printer-service $PRINTER_SERVICE_ARGS
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+. /usr/share/debconf/confmodule
+
+db_input high printer-service/ws-url || true
+db_input high printer-service/printer-mode || true
+db_go || true
+
+db_get printer-service/printer-mode
+if [ "$RET" = "network" ]; then
+    db_input high printer-service/network-ip || true
+    db_input medium printer-service/network-port || true
+    db_go || true
+fi

@@ -2,9 +2,16 @@
 // In production, start.sh runs this instead of server.js directly.
 
 import { createServer } from "http";
+import { createHash } from "node:crypto";
 import { parse } from "url";
 import next from "next";
 import { WebSocketServer, WebSocket } from "ws";
+
+function getPrinterToken() {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) return null;
+    return createHash("sha256").update(`printer:${cronSecret}`).digest("hex").slice(0, 32);
+}
 
 const port = parseInt(process.env.PORT || "3000", 10);
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -72,8 +79,21 @@ const server = createServer((req, res) => {
     handle(req, res, parsedUrl);
 });
 
-// WebSocket server on /print/ws path
-const wss = new WebSocketServer({ server, path: "/print/ws" });
+// WebSocket server on /print/ws path with token auth
+const wss = new WebSocketServer({
+    server,
+    path: "/print/ws",
+    verifyClient: ({ req }, done) => {
+        const url = new URL(req.url, `http://localhost:${port}`);
+        const token = url.searchParams.get("token");
+        const printerToken = getPrinterToken();
+        if (!printerToken || token !== printerToken) {
+            done(false, 401, "Unauthorized");
+            return;
+        }
+        done(true);
+    },
+});
 
 wss.on("connection", (ws, req) => {
     const addr = req.socket.remoteAddress;

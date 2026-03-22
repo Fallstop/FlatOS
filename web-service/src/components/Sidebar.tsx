@@ -56,13 +56,16 @@ export function Sidebar({ user }: SidebarProps) {
 
     return (
         <>
-            {/* Mobile menu button */}
-            <button
-                onClick={() => setMobileOpen(true)}
-                className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-slate-800 border border-slate-700"
-            >
-                <Menu className="w-5 h-5" />
-            </button>
+            {/* Mobile top bar */}
+            <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 bg-slate-800/80 backdrop-blur-xl border-b border-slate-700/50">
+                <button
+                    onClick={() => setMobileOpen(true)}
+                    className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
+                >
+                    <Menu className="w-5 h-5" />
+                </button>
+                <span className="font-bold gradient-text">FlatOS</span>
+            </div>
 
             {/* Mobile overlay */}
             {mobileOpen && (
@@ -78,7 +81,7 @@ export function Sidebar({ user }: SidebarProps) {
           fixed lg:sticky top-0 left-0 h-screen w-64 bg-slate-800/80 backdrop-blur-xl
           border-r border-slate-700/50 flex flex-col z-50
           transform transition-transform duration-300 lg:transform-none
-          ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+          ${mobileOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full lg:translate-x-0 pointer-events-none lg:pointer-events-auto"}
         `}
             >
                 {/* Header */}

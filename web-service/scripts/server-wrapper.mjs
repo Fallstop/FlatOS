@@ -3,7 +3,14 @@
 // injects print server routes and WebSocket support on the same port.
 
 import http from "node:http";
+import { createHash } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
+
+function getPrinterToken() {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) return null;
+    return createHash("sha256").update(`printer:${cronSecret}`).digest("hex").slice(0, 32);
+}
 
 // Track connected printer clients
 const printerClients = new Set();
@@ -68,8 +75,21 @@ http.createServer = function (nextHandler) {
     // Restore original createServer (only need to patch once)
     http.createServer = originalCreateServer;
 
-    // Attach WebSocket server
-    const wss = new WebSocketServer({ server, path: "/print/ws" });
+    // Attach WebSocket server with token auth via verifyClient
+    const wss = new WebSocketServer({
+        server,
+        path: "/print/ws",
+        verifyClient: ({ req }, done) => {
+            const url = new URL(req.url, "http://localhost");
+            const token = url.searchParams.get("token");
+            const printerToken = getPrinterToken();
+            if (!printerToken || token !== printerToken) {
+                done(false, 401, "Unauthorized");
+                return;
+            }
+            done(true);
+        },
+    });
 
     wss.on("connection", (ws, req) => {
         const addr = req.socket.remoteAddress;

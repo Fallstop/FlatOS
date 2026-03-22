@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::Local;
 use clap::Parser;
 use env_logger::Env;
 use escpos::driver::{ConsoleDriver, NativeUsbDriver, NetworkDriver};
@@ -16,7 +17,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 const MAX_CONSECUTIVE_PRINT_FAILURES: u32 = 5;
 const WS_BACKOFF_INITIAL: Duration = Duration::from_secs(1);
 const WS_BACKOFF_MAX: Duration = Duration::from_secs(30);
-const WS_READ_TIMEOUT: Duration = Duration::from_secs(300);
+const WS_READ_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -54,6 +55,7 @@ async fn main() -> Result<()> {
         run_service(driver, &args.url).await?;
     } else if let Some(ip) = args.ip {
         info!("Mode: NETWORK ({}:{})", ip, args.port);
+        spawn_daily_reset(&ip);
         let driver = NetworkDriver::open(&ip, args.port, Some(Duration::from_secs(1)))?;
         run_service(driver, &args.url).await?;
     } else {
@@ -169,18 +171,54 @@ where
     }
 }
 
+/// Spawns a background task that calls /reset_srv on the network printer at 12pm daily.
+fn spawn_daily_reset(ip: &str) {
+    let url = format!("http://{}/reset_srv", ip);
+    info!("Scheduling daily printer reset at 12:00 via {}", url);
+
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("failed to build HTTP client");
+
+        loop {
+            let now = Local::now();
+            let today_noon = now
+                .date_naive()
+                .and_hms_opt(12, 0, 0)
+                .unwrap()
+                .and_local_timezone(now.timezone())
+                .unwrap();
+
+            let next_noon = if now.naive_local() < today_noon.naive_local() {
+                today_noon
+            } else {
+                today_noon + chrono::Duration::days(1)
+            };
+
+            let delay = (next_noon - now).to_std().unwrap_or(Duration::from_secs(60));
+            info!("Next printer reset in {:?}", delay);
+            tokio::time::sleep(delay).await;
+
+            info!("Calling /reset_srv on printer...");
+            match client.get(&url).send().await {
+                Ok(resp) => info!("Printer reset response: {}", resp.status()),
+                Err(e) => warn!("Printer reset failed: {}", e),
+            }
+
+            // Sleep a bit to avoid double-firing
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+    });
+}
+
 fn print_ticket<D>(printer: &mut Printer<D>, text: &str) -> Result<()>
 where
     D: escpos::driver::Driver,
 {
     printer.init()?;
     printer.smoothing(true)?;
-    printer.bold(true)?;
-    printer.size(1, 1)?;
-    printer.writeln("NEW MESSAGE")?;
-    printer.bold(false)?;
-    printer.size(1, 1)?;
-    printer.feed()?;
     printer.writeln(text)?;
     printer.feed()?;
     printer.feed()?;

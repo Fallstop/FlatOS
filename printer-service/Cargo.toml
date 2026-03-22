@@ -16,6 +16,8 @@ url = "2.4"
 nusb = "0.2.1"
 rand = "0.9"
 rustls = "0.23.36"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+chrono = { version = "0.4", features = ["clock"] }
 
 [package.metadata.deb]
 maintainer = "Jasper M-W"

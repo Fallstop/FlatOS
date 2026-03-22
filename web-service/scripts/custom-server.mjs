@@ -114,8 +114,11 @@ server.on("upgrade", (req, socket, head) => {
 
 wss.on("connection", (ws, req) => {
     const addr = req.socket.remoteAddress;
+    ws.isAlive = true;
     printerClients.add(ws);
     console.log(`[print-server] Printer connected from ${addr} (${printerClients.size} total)`);
+
+    ws.on("pong", () => { ws.isAlive = true; });
 
     ws.on("close", () => {
         printerClients.delete(ws);
@@ -127,6 +130,22 @@ wss.on("connection", (ws, req) => {
         printerClients.delete(ws);
     });
 });
+
+// Ping all printer clients every 30s, terminate unresponsive ones
+const pingInterval = setInterval(() => {
+    for (const ws of printerClients) {
+        if (ws.isAlive === false) {
+            console.log("[print-server] Terminating unresponsive client");
+            printerClients.delete(ws);
+            ws.terminate();
+            continue;
+        }
+        ws.isAlive = false;
+        ws.ping();
+    }
+}, 30_000);
+
+wss.on("close", () => clearInterval(pingInterval));
 
 server.listen(port, hostname, () => {
     console.log(`[server] Ready on http://${hostname}:${port} (Next.js + Print WebSocket)`);

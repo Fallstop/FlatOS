@@ -1,6 +1,6 @@
 // Simple cron scheduler that runs alongside the Next.js server
 // Triggers transaction sync every 90 minutes
-// Prints weekly receipt after the first sync on Friday after 10pm
+// Prints weekly receipt after the first sync on Friday after 8pm
 
 const SYNC_INTERVAL_MS = 90 * 60 * 1000; // 90 minutes
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -23,8 +23,8 @@ async function tryWeeklyPrint() {
     const dayOfWeek = now.getDay(); // 0=Sun, 5=Fri
     const hour = now.getHours();
 
-    // Only print on Friday after 10pm
-    if (dayOfWeek !== 5 || hour < 22) {
+    // Only print on Friday after 8pm
+    if (dayOfWeek !== 5 || hour < 20) {
         return;
     }
 

@@ -79,20 +79,27 @@ const server = createServer((req, res) => {
     handle(req, res, parsedUrl);
 });
 
-// WebSocket server on /print/ws path with token auth
-const wss = new WebSocketServer({
-    server,
-    path: "/print/ws",
-    verifyClient: ({ req }, done) => {
-        const url = new URL(req.url, `http://localhost:${port}`);
-        const token = url.searchParams.get("token");
+// WebSocket server for printer clients (noServer so we don't steal Next.js HMR upgrades)
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+    const { pathname, searchParams } = new URL(req.url, `http://localhost:${port}`);
+
+    if (pathname === "/print/ws") {
+        const token = searchParams.get("token");
         const printerToken = getPrinterToken();
         if (!printerToken || token !== printerToken) {
-            done(false, 401, "Unauthorized");
+            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+            socket.destroy();
             return;
         }
-        done(true);
-    },
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit("connection", ws, req);
+        });
+    } else {
+        // Let Next.js handle HMR and other WebSocket upgrades
+        app.getUpgradeHandler()(req, socket, head);
+    }
 });
 
 wss.on("connection", (ws, req) => {

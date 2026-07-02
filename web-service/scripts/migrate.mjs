@@ -104,6 +104,30 @@ function markMigrationAsApplied(migrationName) {
  * Also marks the corresponding migrations as applied if schema already exists.
  */
 function applyMissingSchemaChanges() {
+    // These patches only apply to legacy databases created with 'drizzle-kit push'.
+    // On a fresh database the drizzle migrator creates the full schema, so
+    // patching here would crash (e.g. ALTER on a not-yet-existing table).
+    const transactionsExists = sqlite.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='transactions'"
+    ).get();
+
+    if (!transactionsExists) {
+        // Earlier crash-looped runs of this script may have left behind an
+        // empty landlords table, which would collide with migration 0004.
+        const strayLandlords = sqlite.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='landlords'"
+        ).get();
+        if (strayLandlords) {
+            const rowCount = sqlite.prepare("SELECT COUNT(*) as count FROM landlords").get();
+            if (rowCount.count === 0) {
+                console.log("Dropping stray empty 'landlords' table left by a failed migration run...");
+                sqlite.exec("DROP TABLE landlords");
+            }
+        }
+        console.log("Fresh database detected - skipping legacy schema patches.");
+        return;
+    }
+
     // Check and add landlords table if missing
     const landlordsExists = sqlite.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='landlords'"

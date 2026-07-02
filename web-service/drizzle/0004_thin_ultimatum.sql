@@ -7,5 +7,4 @@ CREATE TABLE `landlords` (
 	`updated_at` integer
 );
 --> statement-breakpoint
-ALTER TABLE `transactions` ADD `matched_landlord_id` text;--> statement-breakpoint
-ALTER TABLE `transactions` ADD `manual_match` integer DEFAULT false;
+ALTER TABLE `transactions` ADD `matched_landlord_id` text;

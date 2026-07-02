@@ -218,9 +218,9 @@ export async function updateFlatmateAction(formData: FormData) {
         return { error: "User not found" };
     }
 
-    // Prevent modifying admin users
-    if (existingUser[0].role === "admin") {
-        return { error: "Cannot modify admin users" };
+    // Prevent modifying other admin users (editing your own account is allowed)
+    if (existingUser[0].role === "admin" && existingUser[0].email !== session.user.email) {
+        return { error: "Cannot modify other admin users" };
     }
 
     try {

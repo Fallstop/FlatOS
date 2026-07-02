@@ -9,7 +9,7 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Install dependencies based on the preferred package manager
-COPY web-service/package.json web-service/pnpm-lock.yaml* web-service/.npmrc* ./
+COPY web-service/package.json web-service/pnpm-lock.yaml* web-service/pnpm-workspace.yaml* web-service/.npmrc* ./
 RUN pnpm install --frozen-lockfile
 
 # Rebuild better-sqlite3 for the current architecture

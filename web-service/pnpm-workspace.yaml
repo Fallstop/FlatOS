@@ -1,5 +1,14 @@
 packages:
   - .
 
-# Build-script approvals live in package.json ("pnpm" field) so they are
-# picked up by the Docker build, which copies package.json but not this file.
+# NOTE: this file must be copied into the Docker deps stage (see Dockerfile),
+# otherwise pnpm install --frozen-lockfile fails on unapproved build scripts
+# and mismatched overrides.
+
+# Allow all dependency build scripts (better-sqlite3, esbuild, sharp, etc.)
+dangerouslyAllowAllBuilds: true
+
+overrides:
+  # immer 11.1.9 (transitive via recharts) is too fresh for the deploy's
+  # minimumReleaseAge supply-chain policy; pin to an aged release.
+  immer: 11.1.8

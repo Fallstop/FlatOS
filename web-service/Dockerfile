@@ -6,7 +6,7 @@ RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
 
 # Install dependencies based on the preferred package manager
 COPY web-service/package.json web-service/pnpm-lock.yaml* web-service/pnpm-workspace.yaml* web-service/.npmrc* ./
@@ -18,7 +18,7 @@ RUN pnpm rebuild better-sqlite3
 FROM base AS builder
 WORKDIR /app
 RUN apk add --no-cache libc6-compat python3 make g++
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY web-service/ .

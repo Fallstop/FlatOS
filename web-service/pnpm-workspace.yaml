@@ -2,13 +2,12 @@ packages:
   - .
 
 # NOTE: this file must be copied into the Docker deps stage (see Dockerfile),
-# otherwise pnpm install --frozen-lockfile fails on unapproved build scripts
-# and mismatched overrides.
+# otherwise pnpm install --frozen-lockfile fails on unapproved build scripts.
 
 # Allow all dependency build scripts (better-sqlite3, esbuild, sharp, etc.)
 dangerouslyAllowAllBuilds: true
 
-overrides:
-  # immer 11.1.9 (transitive via recharts) is too fresh for the deploy's
-  # minimumReleaseAge supply-chain policy; pin to an aged release.
-  immer: 11.1.8
+# Match the deploy host's supply-chain policy: only resolve package versions
+# published at least 24h ago. This makes local resolution automatically pick
+# policy-safe versions, no manual pins needed.
+minimumReleaseAge: 1440

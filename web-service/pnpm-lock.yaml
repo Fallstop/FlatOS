@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  immer: 11.1.8
-
 importers:
 
   .:
@@ -42,7 +39,7 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)
       lucide-react:
-        specifier: ~1.22.0
+        specifier: ^1.22.0
         version: 1.22.0(react@19.2.7)
       next:
         specifier: 16.2.9
@@ -73,7 +70,7 @@ importers:
         specifier: ^7.6.13
         version: 7.6.13
       '@types/node':
-        specifier: ~26.0.1
+        specifier: ^26.0.1
         version: 26.0.1
       '@types/react':
         specifier: ^19.2.17
@@ -2992,6 +2989,7 @@ packages:
 
   uuid@8.3.2:
     resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   victory-vendor@37.3.6:

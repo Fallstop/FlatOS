@@ -1,20 +1,12 @@
-version: '3.8'
-
 services:
   web:
     build:
-      context: .
+      # The Dockerfile COPYs paths prefixed with web-service/, so the build
+      # context must be the repo root (same as captain-definition).
+      context: ..
+      dockerfile: web-service/Dockerfile
       args:
-        - AKAHU_APP_TOKEN=${AKAHU_APP_TOKEN}
-        - AKAHU_API_KEY=${AKAHU_API_KEY}
-        - AKAHU_ACCOUNT_ID=${AKAHU_ACCOUNT_ID}
-        - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-        - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-        - AUTH_SECRET=${AUTH_SECRET}
-        - AUTH_URL=${AUTH_URL}
-        - ADMIN_USER=${ADMIN_USER}
         - TIMEZONE=${TIMEZONE:-Pacific/Auckland}
-        - CRON_SECRET=${CRON_SECRET}
     container_name: flat-manager
     restart: unless-stopped
     ports:

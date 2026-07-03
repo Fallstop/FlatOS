@@ -27,27 +27,35 @@ export function isRentPayment(matchType: string | null | undefined): boolean {
 }
 
 /**
- * Check if an amount is within a tolerance of an expected value.
- * Used for payment matching logic.
- */
-export function isWithinTolerance(actual: number, expected: number, tolerance: number): boolean {
-    const lower = expected * (1 - tolerance);
-    const upper = expected * (1 + tolerance);
-    return actual >= lower && actual <= upper;
-}
-
-/**
  * Format a number as NZD currency using Intl.NumberFormat.
  * Example: 250 -> "$250.00", -50 -> "-$50.00"
  */
 export function formatCurrency(amount: number): string {
+    // Round to cents first so accumulated float error can't flip the displayed cent,
+    // and normalize -0 so we never render "-$0.00".
+    const cents = Math.round(amount * 100);
     return new Intl.NumberFormat("en-NZ", {
         style: "currency",
         currency: "NZD",
-    }).format(amount + 0.0000002); // Avoid floating point issues to assume positive amounts
+    }).format(cents === 0 ? 0 : cents / 100);
 }
 
-export type WeekPaymentStatus = "in-progress" | "overpaid" | "paid" | "partial" | "unpaid";
+export type PaymentStatus = "overpaid" | "paid" | "partial" | "unpaid";
+export type WeekPaymentStatus = "in-progress" | PaymentStatus;
+
+/**
+ * Canonical paid/partial/unpaid/overpaid classification.
+ * Used by the dashboard summary, weekly views, and printed receipts so they
+ * can never drift apart. Nothing due means nothing owed: that's "paid"
+ * (or "overpaid" if money still came in).
+ */
+export function derivePaymentStatus(amountPaid: number, amountDue: number): PaymentStatus {
+    if (amountDue <= 0) return amountPaid > 0 ? "overpaid" : "paid";
+    if (amountPaid >= amountDue * OVERPAID_THRESHOLD) return "overpaid";
+    if (amountPaid >= amountDue * PAID_THRESHOLD) return "paid";
+    if (amountPaid > 0) return "partial";
+    return "unpaid";
+}
 
 /**
  * Determine the payment status for a week based on amounts paid vs due.
@@ -58,8 +66,5 @@ export function getWeekPaymentStatus(week: {
     isInProgress?: boolean;
 }): WeekPaymentStatus {
     if (week.isInProgress) return "in-progress";
-    if (week.amountPaid > week.amountDue * OVERPAID_THRESHOLD) return "overpaid";
-    if (week.amountPaid >= week.amountDue * PAID_THRESHOLD) return "paid";
-    if (week.amountPaid > 0) return "partial";
-    return "unpaid";
+    return derivePaymentStatus(week.amountPaid, week.amountDue);
 }

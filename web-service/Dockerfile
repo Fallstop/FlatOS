@@ -29,29 +29,14 @@ RUN pnpm rebuild better-sqlite3
 # Disable Next.js telemetry
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Environment variables needed at build time for Next.js
-# These are passed as build args and set as env vars
-ARG AKAHU_APP_TOKEN
-ARG AKAHU_API_KEY
-ARG AKAHU_ACCOUNT_ID
-ARG GOOGLE_CLIENT_ID
-ARG GOOGLE_CLIENT_SECRET
-ARG AUTH_SECRET
-ARG AUTH_URL
-ARG ADMIN_USER
+# No runtime secrets at build time: all credentials are read from the
+# environment at request time, so passing them as ARG/ENV here would only
+# bake them into builder image layers for anyone with `docker history`.
+# Only the timezone is needed during the build — NEXT_PUBLIC_TIMEZONE gets
+# inlined into the client bundle so browser and server agree on the zone.
 ARG TIMEZONE=Pacific/Auckland
-ARG CRON_SECRET
-
-ENV AKAHU_APP_TOKEN=$AKAHU_APP_TOKEN
-ENV AKAHU_API_KEY=$AKAHU_API_KEY
-ENV AKAHU_ACCOUNT_ID=$AKAHU_ACCOUNT_ID
-ENV GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
-ENV GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
-ENV AUTH_SECRET=$AUTH_SECRET
-ENV AUTH_URL=$AUTH_URL
-ENV ADMIN_USER=$ADMIN_USER
 ENV TIMEZONE=$TIMEZONE
-ENV CRON_SECRET=$CRON_SECRET
+ENV NEXT_PUBLIC_TIMEZONE=$TIMEZONE
 
 RUN pnpm run build
 

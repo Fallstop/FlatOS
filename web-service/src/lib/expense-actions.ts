@@ -17,7 +17,7 @@ import {
 
 export async function getExpenseCategoriesAction() {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return [];
     }
 
@@ -151,7 +151,7 @@ export async function deleteExpenseCategoryAction(id: string) {
 
 export async function getExpenseRulesAction(categoryId?: string) {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return [];
     }
 
@@ -310,7 +310,7 @@ export async function manuallyMatchExpenseAction(
     categoryId: string | null
 ) {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return { error: "Unauthorized" };
     }
 
@@ -415,62 +415,84 @@ export async function importExpenseDataAction(jsonData: string) {
     let rulesImported = 0;
     const errors: string[] = [];
 
-    // Clear existing expense transactions references to rules (to allow deletion)
-    await db
-        .update(expenseTransactions)
-        .set({ matchedRuleId: null });
+    try {
+        // Upsert categories by slug so existing category IDs — and every
+        // historical/manual expense categorization pointing at them — survive
+        // the import. Only categories absent from the import file are removed.
+        db.transaction((tx) => {
+            const existingCategories = tx.select().from(expenseCategories).all();
+            const existingBySlug = new Map(existingCategories.map((c) => [c.slug, c]));
+            const importedSlugs = new Set(data.categories.map((c) => c.slug));
 
-    // Delete existing rules and categories
-    await db.delete(expenseMatchingRules);
-    await db.delete(expenseCategories);
+            const categorySlugToId = new Map<string, string>();
 
-    // Import categories
-    const categorySlugToId = new Map<string, string>();
+            for (const cat of data.categories) {
+                const values = {
+                    name: cat.name,
+                    icon: cat.icon,
+                    color: cat.color,
+                    trackAllotments: cat.trackAllotments ?? false,
+                    sortOrder: cat.sortOrder ?? 0,
+                    isActive: cat.isActive ?? true,
+                };
 
-    for (const cat of data.categories) {
-        try {
-            const [inserted] = await db.insert(expenseCategories).values({
-                name: cat.name,
-                slug: cat.slug,
-                icon: cat.icon,
-                color: cat.color,
-                trackAllotments: cat.trackAllotments ?? false,
-                sortOrder: cat.sortOrder ?? 0,
-                isActive: cat.isActive ?? true,
-            }).returning();
+                const existing = existingBySlug.get(cat.slug);
+                if (existing) {
+                    tx.update(expenseCategories)
+                        .set(values)
+                        .where(eq(expenseCategories.id, existing.id))
+                        .run();
+                    categorySlugToId.set(cat.slug, existing.id);
+                } else {
+                    const [inserted] = tx
+                        .insert(expenseCategories)
+                        .values({ ...values, slug: cat.slug })
+                        .returning()
+                        .all();
+                    categorySlugToId.set(cat.slug, inserted.id);
+                }
+                categoriesImported++;
+            }
 
-            categorySlugToId.set(cat.slug, inserted.id);
-            categoriesImported++;
-        } catch (err) {
-            errors.push(`Failed to import category "${cat.name}": ${err}`);
-        }
-    }
+            // Remove categories not present in the import (cascades to their
+            // rules and categorized transactions — they're deliberately gone).
+            for (const cat of existingCategories) {
+                if (!importedSlugs.has(cat.slug)) {
+                    tx.delete(expenseCategories).where(eq(expenseCategories.id, cat.id)).run();
+                }
+            }
 
-    // Import rules
-    for (const rule of data.rules) {
-        const categoryId = categorySlugToId.get(rule.categorySlug);
-        if (!categoryId) {
-            errors.push(`Rule "${rule.name}" references unknown category "${rule.categorySlug}"`);
-            continue;
-        }
+            // Rules are fully replaced; clear stale rule references first.
+            tx.update(expenseTransactions).set({ matchedRuleId: null }).run();
+            tx.delete(expenseMatchingRules).run();
 
-        try {
-            await db.insert(expenseMatchingRules).values({
-                categoryId,
-                name: rule.name,
-                priority: rule.priority ?? 100,
-                merchantPattern: rule.merchantPattern,
-                descriptionPattern: rule.descriptionPattern,
-                accountPattern: rule.accountPattern,
-                akahuCategory: rule.akahuCategory,
-                matchMode: rule.matchMode ?? "any",
-                isRegex: rule.isRegex ?? false,
-                isActive: rule.isActive ?? true,
-            });
-            rulesImported++;
-        } catch (err) {
-            errors.push(`Failed to import rule "${rule.name}": ${err}`);
-        }
+            for (const rule of data.rules) {
+                const categoryId = categorySlugToId.get(rule.categorySlug);
+                if (!categoryId) {
+                    errors.push(`Rule "${rule.name}" references unknown category "${rule.categorySlug}"`);
+                    continue;
+                }
+
+                tx.insert(expenseMatchingRules)
+                    .values({
+                        categoryId,
+                        name: rule.name,
+                        priority: rule.priority ?? 100,
+                        merchantPattern: rule.merchantPattern,
+                        descriptionPattern: rule.descriptionPattern,
+                        accountPattern: rule.accountPattern,
+                        akahuCategory: rule.akahuCategory,
+                        matchMode: rule.matchMode ?? "any",
+                        isRegex: rule.isRegex ?? false,
+                        isActive: rule.isActive ?? true,
+                    })
+                    .run();
+                rulesImported++;
+            }
+        });
+    } catch (error) {
+        console.error("Error importing expense data:", error);
+        return { error: "Failed to import expense data — existing data was left untouched" };
     }
 
     revalidatePath("/expenses");

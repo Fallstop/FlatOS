@@ -58,10 +58,13 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
         });
     };
 
-    const handleDeleteRule = (ruleId: string) => {
+    const handleDeleteRule = (rule: ExpenseMatchingRule) => {
+        if (!window.confirm(`Delete rule "${rule.name}"?`)) {
+            return;
+        }
         setError(null);
         startTransition(async () => {
-            const result = await deleteExpenseRuleAction(ruleId);
+            const result = await deleteExpenseRuleAction(rule.id);
             if (result.error) {
                 setError(result.error);
             } else {
@@ -70,10 +73,13 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
         });
     };
 
-    const handleDeleteCategory = (categoryId: string) => {
+    const handleDeleteCategory = (category: ExpenseCategory) => {
+        if (!window.confirm(`Delete category "${category.name}" and all its rules and categorizations?`)) {
+            return;
+        }
         setError(null);
         startTransition(async () => {
-            const result = await deleteExpenseCategoryAction(categoryId);
+            const result = await deleteExpenseCategoryAction(category.id);
             if (result.error) {
                 setError(result.error);
             } else {
@@ -160,20 +166,22 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
                                         <span className="text-sm text-slate-500">
                                             ({categoryRules.length} rules)
                                         </span>
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                        <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity ml-2">
                                             <button
                                                 onClick={() => setEditingCategory(category)}
                                                 disabled={isPending}
                                                 className="p-1 rounded hover:bg-slate-700 transition-colors"
                                                 title="Edit category"
+                                                aria-label="Edit category"
                                             >
                                                 <Edit2 className="w-3 h-3 text-slate-400" />
                                             </button>
                                             <button
-                                                onClick={() => handleDeleteCategory(category.id)}
+                                                onClick={() => handleDeleteCategory(category)}
                                                 disabled={isPending}
                                                 className="p-1 rounded hover:bg-slate-700 transition-colors"
                                                 title="Delete category"
+                                                aria-label="Delete category"
                                             >
                                                 <Trash2 className="w-3 h-3 text-rose-400" />
                                             </button>
@@ -191,7 +199,7 @@ export function ExpenseRulesManager({ rules, categories }: ExpenseRulesManagerPr
                                                     key={rule.id}
                                                     rule={rule}
                                                     onEdit={() => setEditingRule(rule)}
-                                                    onDelete={() => handleDeleteRule(rule.id)}
+                                                    onDelete={() => handleDeleteRule(rule)}
                                                     isPending={isPending}
                                                 />
                                             ))}

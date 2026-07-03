@@ -12,8 +12,11 @@ import {
     ReferenceArea,
     Legend,
 } from "recharts";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import type { FlatmateBalance } from "@/lib/calculations";
+import { TIMEZONE } from "@/lib/constants";
+import { formatCurrency } from "@/lib/utils";
 
 interface PaymentHistoryChartProps {
     balance: FlatmateBalance;
@@ -30,13 +33,6 @@ interface ChartDataPoint {
         description: string;
         amount: number;
     }>;
-}
-
-function formatCurrency(amount: number): string {
-    return new Intl.NumberFormat("en-NZ", {
-        style: "currency",
-        currency: "NZD",
-    }).format(amount);
 }
 
 function CustomTooltip({
@@ -126,7 +122,7 @@ export function PaymentHistoryChart({ balance }: PaymentHistoryChartProps) {
 
             dataPoints.push({
                 date: week.dueDate.toISOString(),
-                dateLabel: format(week.dueDate, "d MMM yyyy"),
+                dateLabel: formatInTimeZone(week.dueDate, TIMEZONE, "d MMM yyyy"),
                 cumulativeDue,
                 cumulativePaid,
                 weekDue: week.amountDue,
@@ -148,7 +144,7 @@ export function PaymentHistoryChart({ balance }: PaymentHistoryChartProps) {
             if (now > lastDate) {
                 dataPoints.push({
                     date: now.toISOString(),
-                    dateLabel: format(now, "d MMM yyyy"),
+                    dateLabel: formatInTimeZone(now, TIMEZONE, "d MMM yyyy"),
                     cumulativeDue,
                     cumulativePaid,
                 });
@@ -256,7 +252,7 @@ export function PaymentHistoryChart({ balance }: PaymentHistoryChartProps) {
                                 dataKey="date"
                                 tickFormatter={(value) => {
                                     try {
-                                        return format(parseISO(value), "d MMM");
+                                        return formatInTimeZone(parseISO(value), TIMEZONE, "d MMM");
                                     } catch {
                                         return "";
                                     }

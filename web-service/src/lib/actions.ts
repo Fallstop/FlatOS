@@ -1,98 +1,24 @@
 "use server";
 
 import { signOut as nextAuthSignOut, auth } from "@/lib/auth";
-import { syncTransactions, triggerManualRefresh, canTriggerManualRefresh, getLastSyncTime } from "@/lib/sync";
+import { syncTransactions, triggerManualRefresh } from "@/lib/sync";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { users, transactions, paymentSchedules, systemState, landlords } from "@/lib/db/schema";
 import { isSaturday, isFriday, previousSaturday, nextFriday, nextSaturday, previousFriday } from "date-fns";
-import { eq, desc } from "drizzle-orm";
-
-const PAGE_SIZE = 50;
+import { eq } from "drizzle-orm";
 
 export async function signOutAction() {
     await nextAuthSignOut({ redirectTo: "/auth/signin" });
 }
 
-export async function getAllTransactionsAction() {
-    const session = await auth();
-    if (!session?.user) {
-        return [];
-    }
-
-    const txsWithUsers = await db
-        .select({
-            id: transactions.id,
-            akahuId: transactions.akahuId,
-            date: transactions.date,
-            amount: transactions.amount,
-            description: transactions.description,
-            merchant: transactions.merchant,
-            merchantLogo: transactions.merchantLogo,
-            category: transactions.category,
-            rawData: transactions.rawData,
-            cardSuffix: transactions.cardSuffix,
-            otherAccount: transactions.otherAccount,
-            matchedUserId: transactions.matchedUserId,
-            matchType: transactions.matchType,
-            matchConfidence: transactions.matchConfidence,
-            manualMatch: transactions.manualMatch,
-            createdAt: transactions.createdAt,
-            matchedUserName: users.name,
-        })
-        .from(transactions)
-        .leftJoin(users, eq(transactions.matchedUserId, users.id))
-        .orderBy(desc(transactions.date));
-
-    return txsWithUsers;
-}
-
-export async function loadMoreTransactionsAction(offset: number) {
-    const session = await auth();
-    if (!session?.user) {
-        return [];
-    }
-
-    const txsWithUsers = await db
-        .select({
-            id: transactions.id,
-            akahuId: transactions.akahuId,
-            date: transactions.date,
-            amount: transactions.amount,
-            description: transactions.description,
-            merchant: transactions.merchant,
-            merchantLogo: transactions.merchantLogo,
-            category: transactions.category,
-            rawData: transactions.rawData,
-            cardSuffix: transactions.cardSuffix,
-            otherAccount: transactions.otherAccount,
-            matchedUserId: transactions.matchedUserId,
-            matchType: transactions.matchType,
-            matchConfidence: transactions.matchConfidence,
-            manualMatch: transactions.manualMatch,
-            createdAt: transactions.createdAt,
-            matchedUserName: users.name,
-        })
-        .from(transactions)
-        .leftJoin(users, eq(transactions.matchedUserId, users.id))
-        .orderBy(desc(transactions.date))
-        .limit(PAGE_SIZE)
-        .offset(offset);
-
-    return txsWithUsers;
-}
-
 export async function syncTransactionsAction() {
-    console.log("[Action] syncTransactionsAction called");
     const session = await auth();
-    if (!session?.user) {
-        console.log("[Action] Unauthorized - no session");
+    if (!session?.user?.id) {
         return { error: "Unauthorized" };
     }
 
-    console.log("[Action] Calling syncTransactions...");
     const result = await syncTransactions();
-    console.log("[Action] syncTransactions result:", result);
     revalidatePath("/transactions");
     revalidatePath("/");
     return result;
@@ -100,7 +26,7 @@ export async function syncTransactionsAction() {
 
 export async function triggerRefreshAction() {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return { error: "Unauthorized" };
     }
 
@@ -119,20 +45,20 @@ export async function triggerRefreshAction() {
     return result;
 }
 
-export async function getSyncStatusAction() {
+export async function backfillTransactionsAction() {
     const session = await auth();
-    if (!session?.user) {
-        return null;
+    if (!session?.user?.id) {
+        return { error: "Unauthorized" };
     }
 
-    const lastSyncTime = await getLastSyncTime();
-    const { canRefresh, nextRefreshAt } = await canTriggerManualRefresh();
+    if (session.user.role !== "admin") {
+        return { error: "Only admins can run a backfill" };
+    }
 
-    return {
-        lastSyncTime,
-        canRefresh,
-        nextRefreshAt,
-    };
+    const result = await syncTransactions({ fullHistory: true });
+    revalidatePath("/transactions");
+    revalidatePath("/");
+    return result;
 }
 
 // ============================================
@@ -276,7 +202,20 @@ export async function deleteFlatmateAction(id: string) {
     }
 
     try {
-        await db.delete(users).where(eq(users.id, id));
+        // Unlink their transactions first — the FK from transactions.matchedUserId
+        // has no cascade, so deleting the user while matches exist would fail.
+        db.transaction((tx) => {
+            tx.update(transactions)
+                .set({
+                    matchedUserId: null,
+                    matchType: null,
+                    matchConfidence: null,
+                    manualMatch: false,
+                })
+                .where(eq(transactions.matchedUserId, id))
+                .run();
+            tx.delete(users).where(eq(users.id, id)).run();
+        });
 
         revalidatePath("/users");
         revalidatePath("/");
@@ -350,14 +289,30 @@ export async function rematchTransactionsAction() {
     }
 }
 
+const MATCH_TYPES = ["rent_payment", "grocery_reimbursement", "other", "expense"] as const;
+type MatchType = (typeof MATCH_TYPES)[number];
+
 export async function updateTransactionMatchAction(
     transactionId: string,
     matchedUserId: string | null,
-    matchType: "rent_payment" | "grocery_reimbursement" | "other" | "expense" | null
+    matchType: MatchType | null
 ) {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return { error: "Unauthorized" };
+    }
+
+    // Validate matchType against the allowed values (client input is untrusted)
+    if (matchType !== null && !MATCH_TYPES.includes(matchType)) {
+        return { error: "Invalid match type" };
+    }
+
+    // Admins can rewrite any match; regular flatmates can only claim a
+    // transaction for themselves or unclaim one that's theirs — otherwise a
+    // flatmate could reassign someone else's rent payment and falsify balances.
+    const isAdmin = session.user.role === "admin";
+    if (!isAdmin && matchedUserId !== null && matchedUserId !== session.user.id) {
+        return { error: "You can only match transactions to yourself" };
     }
 
     try {
@@ -370,6 +325,26 @@ export async function updateTransactionMatchAction(
 
         if (existing.length === 0) {
             return { error: "Transaction not found" };
+        }
+
+        if (
+            !isAdmin &&
+            existing[0].matchedUserId !== null &&
+            existing[0].matchedUserId !== session.user.id
+        ) {
+            return { error: "This transaction is matched to someone else — ask an admin to change it" };
+        }
+
+        // Verify the target user exists
+        if (matchedUserId !== null) {
+            const targetUser = await db
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.id, matchedUserId))
+                .limit(1);
+            if (targetUser.length === 0) {
+                return { error: "User not found" };
+            }
         }
 
         // Update the transaction with manual override
@@ -624,11 +599,10 @@ export async function importSchedulesAction(schedulesJson: string) {
     const allUsers = await db.select().from(users);
     const emailToUserId = new Map(allUsers.map((u) => [u.email, u.id]));
 
-    // Delete all existing schedules before importing
-    await db.delete(paymentSchedules);
-
-    let imported = 0;
+    // Validate and transform everything BEFORE touching the database, so a bad
+    // import file can never wipe the existing schedules.
     const errors: string[] = [];
+    const rows: Array<typeof paymentSchedules.$inferInsert> = [];
 
     for (const schedule of schedules) {
         const userId = emailToUserId.get(schedule.flatmateEmail);
@@ -672,28 +646,36 @@ export async function importSchedulesAction(schedulesJson: string) {
             }
         }
 
-        try {
-            await db.insert(paymentSchedules).values({
-                userId,
-                weeklyAmount: schedule.weeklyAmount,
-                startDate,
-                endDate,
-                notes: schedule.notes,
-            });
-            imported++;
-        } catch {
-            errors.push(`Failed to import schedule for ${schedule.flatmateEmail}`);
-        }
+        rows.push({
+            userId,
+            weeklyAmount: schedule.weeklyAmount,
+            startDate,
+            endDate,
+            notes: schedule.notes,
+        });
+    }
+
+    if (rows.length === 0) {
+        return { error: errors.length > 0 ? errors.join("; ") : "No schedules to import" };
+    }
+
+    try {
+        // Atomic replace: either the whole import lands, or nothing changes.
+        db.transaction((tx) => {
+            tx.delete(paymentSchedules).run();
+            for (const row of rows) {
+                tx.insert(paymentSchedules).values(row).run();
+            }
+        });
+    } catch (error) {
+        console.error("Error importing schedules:", error);
+        return { error: "Failed to import schedules — existing schedules were left untouched" };
     }
 
     revalidatePath("/schedule");
     revalidatePath("/");
 
-    if (errors.length > 0 && imported === 0) {
-        return { error: errors.join("; ") };
-    }
-
-    return { success: true, imported, errors: errors.length > 0 ? errors : undefined };
+    return { success: true, imported: rows.length, errors: errors.length > 0 ? errors : undefined };
 }
 
 // ============================================
@@ -702,7 +684,7 @@ export async function importSchedulesAction(schedulesJson: string) {
 
 export async function getAnalysisStartDateAction(): Promise<string | null> {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return null;
     }
 
@@ -929,6 +911,10 @@ async function sendToPrintServer(text: string): Promise<{ success?: boolean; sen
     }
 
     const result = await response.json();
+    if (!result.sent) {
+        // Broadcasting to zero printers is a silent failure, not a success
+        return { error: "No printers connected — receipt was not printed" };
+    }
     return { success: true, sent: result.sent, total: result.total };
 }
 
@@ -953,18 +939,23 @@ export async function triggerPrintAction(): Promise<{ success?: boolean; sent?: 
 
 export async function triggerPrintWeekAction(
     weekStartISO: string,
-    weekEndISO: string,
-    flatmates: Array<{ userName: string | null; amountDue: number; amountPaid: number }>,
 ): Promise<{ success?: boolean; sent?: number; total?: number; error?: string }> {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return { error: "Unauthorized" };
+    }
+
+    const weekStart = new Date(weekStartISO);
+    if (isNaN(weekStart.getTime())) {
+        return { error: "Invalid week" };
     }
 
     try {
         const { formatWeekViewReceipt } = await import("@/lib/receipt-formatter");
         const { calculateAllBalances } = await import("@/lib/calculations");
 
+        // Recompute the week's data server-side — the printed receipt must
+        // reflect the real balances, not whatever the client sends.
         const balances = await calculateAllBalances();
         const allTimeBalances = balances.flatmates.map((f) => ({
             userName: f.userName,
@@ -973,7 +964,27 @@ export async function triggerPrintWeekAction(
             balance: f.balance,
         }));
 
-        const text = formatWeekViewReceipt(new Date(weekStartISO), new Date(weekEndISO), flatmates, allTimeBalances);
+        let weekEnd: Date | null = null;
+        const weekFlatmates: Array<{ userName: string | null; amountDue: number; amountPaid: number }> = [];
+        for (const f of balances.flatmates) {
+            const week = f.weeklyBreakdown.find(
+                (w) => w.weekStart.getTime() === weekStart.getTime()
+            );
+            if (week) {
+                weekEnd = week.weekEnd;
+                weekFlatmates.push({
+                    userName: f.userName,
+                    amountDue: week.amountDue,
+                    amountPaid: week.amountPaid,
+                });
+            }
+        }
+
+        if (!weekEnd || weekFlatmates.length === 0) {
+            return { error: "Week not found" };
+        }
+
+        const text = formatWeekViewReceipt(weekStart, weekEnd, weekFlatmates, allTimeBalances);
         return await sendToPrintServer(text);
     } catch (error) {
         console.error("Error triggering week print:", error);

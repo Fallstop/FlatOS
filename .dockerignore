@@ -1,0 +1,19 @@
+# Repo-root build context (captain-definition / docker compose build from here).
+# Keep secrets, local databases, and build junk out of the Docker build context.
+**/.env
+**/.env.*
+!**/.env.example
+**/data/
+**/*.db
+**/*.sqlite
+**/*.db-shm
+**/*.db-wal
+web-service/docs/
+**/node_modules/
+**/.next/
+**/*.tsbuildinfo
+.git
+.claude
+.vscode
+printer-service/
+README.md

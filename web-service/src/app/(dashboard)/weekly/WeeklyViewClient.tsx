@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { ChevronRight, X, Dot, Clock, Printer } from "lucide-react";
+import { TIMEZONE } from "@/lib/constants";
 import type { WeeklyViewRow } from "@/lib/weekly-view";
 import { formatCurrency, getWeekPaymentStatus, type WeekPaymentStatus } from "@/lib/utils";
 import { WeekStatusIcon, weekStatusLabel, weekPaidAmountColor } from "@/components/WeekStatusIcon";
@@ -63,7 +64,7 @@ function AllFlatmatesWeekRow({
                 <div className="text-left">
                     <div className="flex items-center gap-2">
                         <p className="font-medium">
-                            {format(row.weekStart, "d MMM")} – {format(row.weekEnd, "d MMM")}
+                            {formatInTimeZone(row.weekStart, TIMEZONE, "d MMM")} – {formatInTimeZone(row.weekEnd, TIMEZONE, "d MMM")}
                         </p>
                         {overallStatus === "in-progress" && (
                             <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
@@ -72,7 +73,7 @@ function AllFlatmatesWeekRow({
                         )}
                     </div>
                     <p className="text-sm text-slate-400">
-                        Due {format(row.dueDate, "EEE, d MMM")}
+                        Due {formatInTimeZone(row.dueDate, TIMEZONE, "EEE, d MMM")}
                     </p>
                 </div>
             </div>
@@ -163,20 +164,23 @@ function ReceiptDialog({
     const handlePrint = async () => {
         setIsPrinting(true);
         setMessage(null);
-        const result = await triggerPrintWeekAction(
-            row.weekStart.toISOString(),
-            row.weekEnd.toISOString(),
-            flatmates,
-        );
-        if (result.error) {
-            setMessage({ type: "error", text: result.error });
-        } else {
-            setMessage({
-                type: "success",
-                text: `Sent to ${result.sent} printer${result.sent !== 1 ? "s" : ""}`,
-            });
+        try {
+            // The server recomputes the week's data itself — only the week
+            // identity is sent; the preview below is client-side only.
+            const result = await triggerPrintWeekAction(row.weekStart.toISOString());
+            if (result.error) {
+                setMessage({ type: "error", text: result.error });
+            } else {
+                setMessage({
+                    type: "success",
+                    text: `Sent to ${result.sent} printer${result.sent !== 1 ? "s" : ""}`,
+                });
+            }
+        } catch {
+            setMessage({ type: "error", text: "Print request failed" });
+        } finally {
+            setIsPrinting(false);
         }
-        setIsPrinting(false);
     };
 
     return (
@@ -196,6 +200,7 @@ function ReceiptDialog({
                     </h3>
                     <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="p-1.5 hover:bg-slate-700/50 rounded-lg transition-colors"
                     >
                         <X className="w-4 h-4 text-slate-400" />
@@ -260,7 +265,7 @@ function AllFlatmatesWeekModal({
                     <div>
                         <div className="flex items-center gap-2">
                             <h2 className="text-lg font-semibold">
-                                {format(row.weekStart, "d MMM")} – {format(row.weekEnd, "d MMM yyyy")}
+                                {formatInTimeZone(row.weekStart, TIMEZONE, "d MMM")} – {formatInTimeZone(row.weekEnd, TIMEZONE, "d MMM yyyy")}
                             </h2>
                             {overallStatus === "in-progress" && (
                                 <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
@@ -269,11 +274,12 @@ function AllFlatmatesWeekModal({
                             )}
                         </div>
                         <p className="text-sm text-slate-400 mt-1">
-                            Due {format(row.dueDate, "EEEE, d MMM")}
+                            Due {formatInTimeZone(row.dueDate, TIMEZONE, "EEEE, d MMM")}
                         </p>
                     </div>
                     <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
                     >
                         <X className="w-5 h-5 text-slate-400" />

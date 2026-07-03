@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatInTimeZone } from "date-fns-tz";
 import { RefreshCw, Check, AlertCircle, CloudDownload } from "lucide-react";
 import { syncTransactionsAction, triggerRefreshAction } from "@/lib/actions";
+import { TIMEZONE } from "@/lib/constants";
 
 interface SyncButtonProps {
     isAdmin: boolean;
@@ -69,7 +71,7 @@ export function SyncButton({ isAdmin, lastSyncTime, canRefresh, nextRefreshAt }:
                 onClick={handleSync}
                 disabled={isPending}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 btn-press"
-                title={lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleString()}` : "Never synced"}
+                title={lastSyncTime ? `Last synced: ${formatInTimeZone(lastSyncTime, TIMEZONE, "d MMM yyyy, h:mm a")}` : "Never synced"}
             >
                 <RefreshCw className={`w-4 h-4 transition-transform duration-300 ${isPending ? "animate-spin" : ""}`} />
                 <span className="hidden sm:inline">Sync</span>
@@ -83,7 +85,7 @@ export function SyncButton({ isAdmin, lastSyncTime, canRefresh, nextRefreshAt }:
                     title={
                         canRefresh
                             ? "Fetch fresh data from Akahu"
-                            : `Next refresh at ${nextRefreshAt?.toLocaleTimeString()}`
+                            : `Next refresh at ${nextRefreshAt ? formatInTimeZone(nextRefreshAt, TIMEZONE, "h:mm a") : "unknown"}`
                     }
                 >
                     <CloudDownload className={`w-4 h-4 transition-transform duration-300 ${isPending ? "animate-pulse" : ""}`} />

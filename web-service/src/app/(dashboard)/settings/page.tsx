@@ -11,6 +11,7 @@ import { SettingsForm } from "./SettingsForm";
 import { AnalysisStartDateForm } from "./AnalysisStartDateForm";
 import { LandlordForm } from "./LandlordForm";
 import { PrinterSection } from "./PrinterSection";
+import { BackfillButton } from "./BackfillButton";
 
 export default async function SettingsPage() {
     const session = await auth();
@@ -170,6 +171,7 @@ export default async function SettingsPage() {
                             </p>
                         </div>
                         <AnalysisStartDateForm initialValue={analysisStartDate} />
+                        <BackfillButton />
                     </div>
 
                     <div className="glass rounded-2xl overflow-hidden mt-6">

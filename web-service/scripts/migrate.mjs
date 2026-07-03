@@ -267,9 +267,16 @@ try {
     migrate(db, { migrationsFolder: "./drizzle" });
     console.log("Migrations complete!");
 } catch (error) {
-    // Check if this is a schema mismatch error
-    if (error.cause?.code === "SQLITE_ERROR") {
-        console.warn("Migration failed with SQLite error:", error.cause?.message || error.message);
+    // Legacy push-created databases can hit benign overlaps where a migration
+    // re-creates something that already exists. Only those are safe to skip —
+    // any other migration failure must stop the boot (set -e in start.sh)
+    // rather than serve the app against a half-migrated schema.
+    const message = error.cause?.message || error.message || "";
+    const isBenignOverlap =
+        error.cause?.code === "SQLITE_ERROR" && /duplicate column name|already exists/i.test(message);
+
+    if (isBenignOverlap) {
+        console.warn("Migration skipped a benign schema overlap:", message);
         console.warn("The application will attempt to start anyway.");
     } else {
         console.error("Migration failed:", error.message);

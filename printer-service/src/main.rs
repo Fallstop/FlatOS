@@ -79,7 +79,10 @@ async fn main() -> Result<()> {
             );
         }
         let driver = NativeUsbDriver::open(0x0456, 0x0808)?;
-        run_service(driver, &args.url, None::<fn() -> Result<NativeUsbDriver>>).await?;
+        run_service(driver, &args.url, Some(|| {
+            info!("Reconnecting to USB printer at 0456:0808...");
+            NativeUsbDriver::open(0x0456, 0x0808).map_err(|e| anyhow::anyhow!(e))
+        })).await?;
     }
 
     Ok(())
@@ -132,24 +135,10 @@ where
                                                 e
                                             );
 
-                                            // Attempt to reconnect the printer driver
+                                            // Attempt to reconnect the printer driver and retry the job once
                                             if let Some(ref reconnect_fn) = reconnect {
-                                                match reconnect_fn() {
-                                                    Ok(new_driver) => {
-                                                        printer = Printer::new(new_driver, Protocol::default(), None);
-                                                        match printer.init() {
-                                                            Ok(_) => {
-                                                                info!("Printer reconnected successfully.");
-                                                                consecutive_print_failures = 0;
-                                                            }
-                                                            Err(e) => {
-                                                                warn!("Printer reconnected but init failed: {}", e);
-                                                            }
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        warn!("Printer reconnect failed: {}", e);
-                                                    }
+                                                if reconnect_and_retry(&mut printer, reconnect_fn, &text) {
+                                                    consecutive_print_failures = 0;
                                                 }
                                             }
 
@@ -187,9 +176,16 @@ where
                     }
                 }
             }
-            Err(e) => {
-                error!("WebSocket connect failed: {}", e);
-            }
+            Err(e) => match &e {
+                tokio_tungstenite::tungstenite::Error::Http(response)
+                    if response.status() == 401 =>
+                {
+                    error!("WebSocket authentication rejected (HTTP 401) — check the token in the ws-url");
+                }
+                _ => {
+                    error!("WebSocket connect failed: {}", e);
+                }
+            },
         }
 
         let jitter = rand::rng().random_range(0..=1000);
@@ -197,6 +193,40 @@ where
         info!("Reconnecting in {:?}...", sleep_dur);
         tokio::time::sleep(sleep_dur).await;
         ws_backoff = (ws_backoff * 2).min(WS_BACKOFF_MAX);
+    }
+}
+
+/// Reconnects the printer driver and retries printing the payload once.
+/// Returns true only if the retry actually printed successfully.
+fn reconnect_and_retry<D, F>(printer: &mut Printer<D>, reconnect_fn: &F, text: &str) -> bool
+where
+    D: escpos::driver::Driver,
+    F: Fn() -> Result<D>,
+{
+    let new_driver = match reconnect_fn() {
+        Ok(driver) => driver,
+        Err(e) => {
+            warn!("Printer reconnect failed: {}", e);
+            return false;
+        }
+    };
+
+    *printer = Printer::new(new_driver, Protocol::default(), None);
+    if let Err(e) = printer.init() {
+        warn!("Printer reconnected but init failed: {}", e);
+        return false;
+    }
+
+    info!("Printer reconnected, retrying print...");
+    match print_ticket(printer, text) {
+        Ok(_) => {
+            info!("Printed ticket after reconnect.");
+            true
+        }
+        Err(e) => {
+            warn!("Retry after reconnect failed: {}", e);
+            false
+        }
     }
 }
 

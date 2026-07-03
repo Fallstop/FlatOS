@@ -4,12 +4,16 @@ import { syncTransactions, triggerManualRefresh, canTriggerManualRefresh, getLas
 
 export async function POST(request: Request) {
     const session = await auth();
-    
-    if (!session?.user) {
+
+    // Require a user that still exists in the DB (session.user.id is only set
+    // when the whitelist row is present) — a removed flatmate's JWT stays
+    // valid for up to 30 days otherwise.
+    if (!session?.user?.id) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { action } = await request.json();
+    const body = await request.json().catch(() => null);
+    const action = body?.action;
 
     if (action === "sync") {
         // Sync transactions from Akahu cache
@@ -33,7 +37,7 @@ export async function POST(request: Request) {
 export async function GET() {
     const session = await auth();
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

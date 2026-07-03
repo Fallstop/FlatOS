@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/lib/actions";
 import {
@@ -60,6 +61,7 @@ export function Sidebar({ user }: SidebarProps) {
             <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 bg-slate-800/80 backdrop-blur-xl border-b border-slate-700/50">
                 <button
                     onClick={() => setMobileOpen(true)}
+                    aria-label="Open menu"
                     className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
                 >
                     <Menu className="w-5 h-5" />
@@ -98,6 +100,7 @@ export function Sidebar({ user }: SidebarProps) {
                         </div>
                         <button
                             onClick={() => setMobileOpen(false)}
+                            aria-label="Close menu"
                             className="lg:hidden p-1 rounded-lg hover:bg-slate-700"
                         >
                             <X className="w-5 h-5" />
@@ -133,9 +136,13 @@ export function Sidebar({ user }: SidebarProps) {
                 <div className="p-3 border-t border-slate-700/50">
                     <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-700/30">
                         {user.image ? (
-                            <img
+                            <Image
                                 src={user.image}
                                 alt={user.name || "User"}
+                                width={40}
+                                height={40}
+                                unoptimized
+                                referrerPolicy="no-referrer"
                                 className="w-10 h-10 rounded-full border-2 border-slate-600"
                             />
                         ) : (

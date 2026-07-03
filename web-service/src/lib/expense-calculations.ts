@@ -2,8 +2,21 @@ import { db } from "./db";
 import { expenseCategories, expenseTransactions, transactions } from "./db/schema";
 import { eq, desc } from "drizzle-orm";
 import type { ExpenseCategory, Transaction, ExpenseTransaction } from "./db/schema";
-import { startOfWeek, startOfMonth, endOfMonth, startOfDay, subDays, differenceInDays, subMonths } from "date-fns";
-import { WEEK_STARTS_ON } from "./constants";
+import { startOfWeek, startOfMonth, endOfMonth, subDays, differenceInDays, subMonths, eachDayOfInterval, eachWeekOfInterval, format } from "date-fns";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { WEEK_STARTS_ON, TIMEZONE } from "./constants";
+
+/**
+ * Chart bucketing works on wall-clock dates in the app's timezone so that,
+ * e.g., a Saturday-morning shop in Auckland lands in the Auckland week even
+ * when the server runs in UTC. These helpers convert instants to zoned
+ * wall-clock Dates and derive stable bucket keys from them.
+ */
+const toZoned = (date: Date) => toZonedTime(date, TIMEZONE);
+const zonedDayKey = (date: Date) => format(toZoned(date), "yyyy-MM-dd");
+const zonedWeekKey = (date: Date) =>
+    format(startOfWeek(toZoned(date), { weekStartsOn: WEEK_STARTS_ON }), "yyyy-MM-dd");
+const zonedMonthKey = (date: Date) => format(toZoned(date), "yyyy-MM");
 
 export interface ExpenseCategorySummary {
     category: ExpenseCategory;
@@ -114,119 +127,6 @@ export async function getExpenseSummary(
 }
 
 /**
- * Get expense summary for a specific category
- */
-export async function getCategoryExpenseSummary(
-    categoryId: string,
-    startDate?: Date,
-    endDate?: Date
-): Promise<ExpenseCategorySummary | null> {
-    const [category] = await db
-        .select()
-        .from(expenseCategories)
-        .where(eq(expenseCategories.id, categoryId))
-        .limit(1);
-
-    if (!category) return null;
-
-    const expenseTxs = await db
-        .select({
-            transactionId: expenseTransactions.transactionId,
-            amount: transactions.amount,
-            date: transactions.date,
-        })
-        .from(expenseTransactions)
-        .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
-        .where(eq(expenseTransactions.categoryId, categoryId));
-
-    let filteredTxs = expenseTxs;
-    if (startDate || endDate) {
-        filteredTxs = expenseTxs.filter(tx => {
-            if (startDate && tx.date < startDate) return false;
-            if (endDate && tx.date > endDate) return false;
-            return true;
-        });
-    }
-
-    const totalAmount = filteredTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
-    const transactionCount = filteredTxs.length;
-    const averageAmount = transactionCount > 0 ? totalAmount / transactionCount : 0;
-
-    return {
-        category,
-        totalAmount,
-        transactionCount,
-        averageAmount,
-    };
-}
-
-/**
- * Calculate power burn rate from transaction history
- * This looks at all power category transactions and calculates how quickly money is being spent
- */
-export async function calculatePowerBurnRate(categoryId?: string): Promise<PowerBurnRate | null> {
-    // If no categoryId provided, find the Power category by slug
-    let powerCategoryId = categoryId;
-    if (!powerCategoryId) {
-        const [powerCategory] = await db
-            .select()
-            .from(expenseCategories)
-            .where(eq(expenseCategories.slug, "power"))
-            .limit(1);
-
-        if (!powerCategory) return null;
-        powerCategoryId = powerCategory.id;
-    }
-
-    // Get all power transactions sorted by date
-    const powerTxs = await db
-        .select({
-            transactionId: expenseTransactions.transactionId,
-            amount: transactions.amount,
-            date: transactions.date,
-        })
-        .from(expenseTransactions)
-        .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
-        .where(eq(expenseTransactions.categoryId, powerCategoryId))
-        .orderBy(desc(transactions.date));
-
-    if (powerTxs.length === 0) {
-        return {
-            dailyRate: 0,
-            weeklyRate: 0,
-            monthlyRate: 0,
-            totalSpent: 0,
-            daysCovered: 0,
-            lastPaymentDate: null,
-            lastPaymentAmount: null,
-        };
-    }
-
-    // Calculate total spent
-    const totalSpent = powerTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
-
-    // Get date range
-    const oldestTx = powerTxs[powerTxs.length - 1];
-    const newestTx = powerTxs[0];
-    const daysCovered = Math.max(1, differenceInDays(newestTx.date, oldestTx.date));
-
-    // Calculate burn rates
-    const dailyRate = totalSpent / daysCovered;
-    const weeklyRate = dailyRate * 7;
-    const monthlyRate = dailyRate * 30;
-
-    return {
-        dailyRate,
-        weeklyRate,
-        monthlyRate,
-        totalSpent,
-        daysCovered,
-        lastPaymentDate: newestTx.date,
-        lastPaymentAmount: Math.abs(newestTx.amount),
-    };
-}
-
-/**
  * Calculate burn rates for all expense categories
  */
 export async function calculateAllCategoryBurnRates(): Promise<CategoryBurnRate[]> {
@@ -289,60 +189,6 @@ export async function calculateAllCategoryBurnRates(): Promise<CategoryBurnRate[
 }
 
 /**
- * Get expense transactions for a category with full details
- */
-export async function getExpenseTransactionsForCategory(
-    categoryId: string,
-    limit?: number,
-    startDate?: Date,
-    endDate?: Date
-): Promise<ExpenseTransactionWithDetails[]> {
-    const [category] = await db
-        .select()
-        .from(expenseCategories)
-        .where(eq(expenseCategories.id, categoryId))
-        .limit(1);
-
-    if (!category) return [];
-
-    // Get expense transactions with their full transaction data
-    const query = db
-        .select({
-            expenseTransaction: expenseTransactions,
-            transaction: transactions,
-        })
-        .from(expenseTransactions)
-        .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
-        .where(eq(expenseTransactions.categoryId, categoryId))
-        .orderBy(desc(transactions.date));
-
-    let results = await query;
-
-    // Filter by date (convert to timestamps for reliable comparison)
-    if (startDate || endDate) {
-        const startTime = startDate?.getTime();
-        const endTime = endDate?.getTime();
-        results = results.filter(r => {
-            const txTime = new Date(r.transaction.date).getTime();
-            if (startTime && txTime < startTime) return false;
-            if (endTime && txTime > endTime) return false;
-            return true;
-        });
-    }
-
-    // Apply limit
-    if (limit) {
-        results = results.slice(0, limit);
-    }
-
-    return results.map(r => ({
-        transaction: r.transaction,
-        expenseTransaction: r.expenseTransaction,
-        category,
-    }));
-}
-
-/**
  * Get all expense transactions with full details (for the expenses page)
  */
 export async function getAllExpenseTransactions(
@@ -395,52 +241,25 @@ export async function getAllExpenseTransactions(
 }
 
 /**
- * Get monthly expense breakdown for a category (for charts)
- */
-export async function getMonthlyExpenseBreakdown(
-    categoryId: string,
-    months: number = 6
-): Promise<{ month: string; amount: number }[]> {
-    const results: { month: string; amount: number }[] = [];
-    const now = new Date();
-
-    for (let i = months - 1; i >= 0; i--) {
-        const monthDate = subMonths(now, i);
-        const txs = await db
-            .select({
-                amount: transactions.amount,
-            })
-            .from(expenseTransactions)
-            .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id))
-            .where(eq(expenseTransactions.categoryId, categoryId));
-
-        const monthTotal = txs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
-
-        results.push({
-            month: monthDate.toLocaleDateString("en-NZ", { month: "short", year: "2-digit" }),
-            amount: monthTotal,
-        });
-    }
-
-    return results;
-}
-
-/**
- * Get period dates based on selection
+ * Get period dates based on selection.
+ * Boundaries are computed on the app-timezone calendar, then converted back
+ * to real instants for querying.
  */
 export function getPeriodDates(period: "month" | "year" | "all"): { startDate?: Date; endDate?: Date } {
-    const now = new Date();
+    const nowZoned = toZoned(new Date());
 
     switch (period) {
         case "month":
             return {
-                startDate: startOfMonth(now),
-                endDate: endOfMonth(now),
+                startDate: fromZonedTime(startOfMonth(nowZoned), TIMEZONE),
+                endDate: fromZonedTime(endOfMonth(nowZoned), TIMEZONE),
             };
         case "year":
+            // Rolling 12 calendar months including the current one
+            // (subMonths(12) would span 13 months)
             return {
-                startDate: startOfMonth(subMonths(now, 12)),
-                endDate: endOfMonth(now),
+                startDate: fromZonedTime(startOfMonth(subMonths(nowZoned, 11)), TIMEZONE),
+                endDate: fromZonedTime(endOfMonth(nowZoned), TIMEZONE),
             };
         case "all":
         default:
@@ -506,36 +325,26 @@ export async function getWeeklyExpenseData(
     // Filter by date range
     const filteredTxs = expenseTxs.filter(tx => tx.date >= start && tx.date <= end);
 
-    // Group by week (Saturday start)
+    // Group by week (Saturday start) in the app timezone
     const weeklyMap = new Map<string, number>();
 
     filteredTxs.forEach(tx => {
-        const weekStart = startOfWeek(tx.date, { weekStartsOn: WEEK_STARTS_ON });
-        const weekKey = weekStart.toISOString().split('T')[0];
+        const weekKey = zonedWeekKey(tx.date);
         const current = weeklyMap.get(weekKey) || 0;
         weeklyMap.set(weekKey, current + Math.abs(tx.amount));
     });
 
     // Fill in all weeks in the range
-    const results: WeeklyExpenseData[] = [];
-    const currentWeek = startOfWeek(start, { weekStartsOn: WEEK_STARTS_ON });
-    const endNormalized = new Date(end);
-    endNormalized.setHours(23, 59, 59, 999);
+    const weeks = eachWeekOfInterval(
+        { start: toZoned(start), end: toZoned(end) },
+        { weekStartsOn: WEEK_STARTS_ON }
+    );
 
-    while (currentWeek <= endNormalized) {
-        const weekKey = currentWeek.toISOString().split('T')[0];
-        const amount = weeklyMap.get(weekKey) || 0;
-
-        results.push({
-            week: currentWeek.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }),
-            weekStart: new Date(currentWeek),
-            amount,
-        });
-
-        currentWeek.setDate(currentWeek.getDate() + 7);
-    }
-
-    return results;
+    return weeks.map((weekStart) => ({
+        week: format(weekStart, "d MMM"),
+        weekStart,
+        amount: weeklyMap.get(format(weekStart, "yyyy-MM-dd")) || 0,
+    }));
 }
 
 /**
@@ -559,14 +368,13 @@ export async function getMonthlyExpenseData(months: number = 12): Promise<Monthl
         .innerJoin(transactions, eq(expenseTransactions.transactionId, transactions.id));
 
     const results: MonthlyExpenseData[] = [];
-    const now = new Date();
+    const nowZoned = toZoned(new Date());
 
     for (let i = months - 1; i >= 0; i--) {
-        const monthDate = subMonths(now, i);
-        const start = startOfMonth(monthDate);
-        const end = endOfMonth(monthDate);
+        const monthDate = subMonths(nowZoned, i);
+        const monthKey = format(monthDate, "yyyy-MM");
 
-        const monthTxs = allExpenseTxs.filter(tx => tx.date >= start && tx.date <= end);
+        const monthTxs = allExpenseTxs.filter(tx => zonedMonthKey(tx.date) === monthKey);
 
         const categoryData = categories.map(cat => {
             const catTxs = monthTxs.filter(tx => tx.categoryId === cat.id);
@@ -580,8 +388,8 @@ export async function getMonthlyExpenseData(months: number = 12): Promise<Monthl
         });
 
         results.push({
-            month: monthDate.toLocaleDateString("en-NZ", { month: "short" }),
-            monthDate: start,
+            month: format(monthDate, "MMM"),
+            monthDate: startOfMonth(monthDate),
             categories: categoryData,
             total: categoryData.reduce((sum, c) => sum + c.amount, 0),
         });
@@ -624,12 +432,11 @@ export async function getWeeklyExpenseDataAllCategories(
     // Filter by date range
     const filteredTxs = allExpenseTxs.filter(tx => tx.date >= start && tx.date <= end);
 
-    // Group by week and category
+    // Group by week and category, in the app timezone
     const weeklyMap = new Map<string, Map<string, number>>();
 
     filteredTxs.forEach(tx => {
-        const weekStart = startOfWeek(tx.date, { weekStartsOn: WEEK_STARTS_ON });
-        const weekKey = weekStart.toISOString().split('T')[0];
+        const weekKey = zonedWeekKey(tx.date);
 
         if (!weeklyMap.has(weekKey)) {
             weeklyMap.set(weekKey, new Map<string, number>());
@@ -641,14 +448,13 @@ export async function getWeeklyExpenseDataAllCategories(
     });
 
     // Fill in all weeks in the range
-    const results: WeeklyExpenseDataAllCategories[] = [];
-    const currentWeek = startOfWeek(start, { weekStartsOn: WEEK_STARTS_ON });
-    const endNormalized = new Date(end);
-    endNormalized.setHours(23, 59, 59, 999);
+    const weeks = eachWeekOfInterval(
+        { start: toZoned(start), end: toZoned(end) },
+        { weekStartsOn: WEEK_STARTS_ON }
+    );
 
-    while (currentWeek <= endNormalized) {
-        const weekKey = currentWeek.toISOString().split('T')[0];
-        const categoryAmounts = weeklyMap.get(weekKey) || new Map<string, number>();
+    return weeks.map((weekStart) => {
+        const categoryAmounts = weeklyMap.get(format(weekStart, "yyyy-MM-dd")) || new Map<string, number>();
 
         const categoryData = categories.map(cat => ({
             categoryId: cat.id,
@@ -657,17 +463,13 @@ export async function getWeeklyExpenseDataAllCategories(
             amount: categoryAmounts.get(cat.id) || 0,
         }));
 
-        results.push({
-            week: currentWeek.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }),
-            weekStart: new Date(currentWeek),
+        return {
+            week: format(weekStart, "d MMM"),
+            weekStart,
             categories: categoryData,
             total: categoryData.reduce((sum, c) => sum + c.amount, 0),
-        });
-
-        currentWeek.setDate(currentWeek.getDate() + 7);
-    }
-
-    return results;
+        };
+    });
 }
 
 export interface DailyExpenseData {
@@ -712,36 +514,23 @@ export async function getDailyExpenseData(
     // Filter by date range
     const filteredTxs = expenseTxs.filter(tx => tx.date >= start && tx.date <= end);
 
-    // Group by day
+    // Group by day in the app timezone
     const dailyMap = new Map<string, number>();
 
     filteredTxs.forEach(tx => {
-        const dayStart = startOfDay(tx.date);
-        const dayKey = dayStart.toISOString().split('T')[0];
+        const dayKey = zonedDayKey(tx.date);
         const current = dailyMap.get(dayKey) || 0;
         dailyMap.set(dayKey, current + Math.abs(tx.amount));
     });
 
     // Fill in all days in the range
-    const results: DailyExpenseData[] = [];
-    const currentDay = startOfDay(start);
-    const endNormalized = new Date(end);
-    endNormalized.setHours(23, 59, 59, 999);
+    const days = eachDayOfInterval({ start: toZoned(start), end: toZoned(end) });
 
-    while (currentDay <= endNormalized) {
-        const dayKey = currentDay.toISOString().split('T')[0];
-        const amount = dailyMap.get(dayKey) || 0;
-
-        results.push({
-            day: currentDay.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }),
-            dayDate: new Date(currentDay),
-            amount,
-        });
-
-        currentDay.setDate(currentDay.getDate() + 1);
-    }
-
-    return results;
+    return days.map((dayDate) => ({
+        day: format(dayDate, "d MMM"),
+        dayDate,
+        amount: dailyMap.get(format(dayDate, "yyyy-MM-dd")) || 0,
+    }));
 }
 
 /**
@@ -774,12 +563,11 @@ export async function getDailyExpenseDataAllCategories(
     // Filter by date range
     const filteredTxs = allExpenseTxs.filter(tx => tx.date >= start && tx.date <= end);
 
-    // Group by day and category
+    // Group by day and category, in the app timezone
     const dailyMap = new Map<string, Map<string, number>>();
 
     filteredTxs.forEach(tx => {
-        const dayStart = startOfDay(tx.date);
-        const dayKey = dayStart.toISOString().split('T')[0];
+        const dayKey = zonedDayKey(tx.date);
 
         if (!dailyMap.has(dayKey)) {
             dailyMap.set(dayKey, new Map<string, number>());
@@ -791,14 +579,10 @@ export async function getDailyExpenseDataAllCategories(
     });
 
     // Fill in all days in the range
-    const results: DailyExpenseDataAllCategories[] = [];
-    const currentDay = startOfDay(start);
-    const endNormalized = new Date(end);
-    endNormalized.setHours(23, 59, 59, 999);
+    const days = eachDayOfInterval({ start: toZoned(start), end: toZoned(end) });
 
-    while (currentDay <= endNormalized) {
-        const dayKey = currentDay.toISOString().split('T')[0];
-        const categoryAmounts = dailyMap.get(dayKey) || new Map<string, number>();
+    return days.map((dayDate) => {
+        const categoryAmounts = dailyMap.get(format(dayDate, "yyyy-MM-dd")) || new Map<string, number>();
 
         const categoryData = categories.map(cat => ({
             categoryId: cat.id,
@@ -807,15 +591,11 @@ export async function getDailyExpenseDataAllCategories(
             amount: categoryAmounts.get(cat.id) || 0,
         }));
 
-        results.push({
-            day: currentDay.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }),
-            dayDate: new Date(currentDay),
+        return {
+            day: format(dayDate, "d MMM"),
+            dayDate,
             categories: categoryData,
             total: categoryData.reduce((sum, c) => sum + c.amount, 0),
-        });
-
-        currentDay.setDate(currentDay.getDate() + 1);
-    }
-
-    return results;
+        };
+    });
 }

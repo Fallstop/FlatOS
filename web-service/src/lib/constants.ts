@@ -1,8 +1,13 @@
 import { startOfWeek, endOfWeek } from "date-fns";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 
-// Timezone: configurable via NEXT_PUBLIC_TIMEZONE env var, defaults to Pacific/Auckland
-export const TIMEZONE = process.env.NEXT_PUBLIC_TIMEZONE || "Pacific/Auckland";
+// Timezone for all week/date calculations, defaults to Pacific/Auckland.
+// NEXT_PUBLIC_TIMEZONE is inlined at build time so client components agree
+// with the server; TIMEZONE alone only reaches server code, so deployments
+// overriding the zone should set both (the Dockerfile derives NEXT_PUBLIC_
+// from TIMEZONE automatically).
+export const TIMEZONE =
+    process.env.NEXT_PUBLIC_TIMEZONE || process.env.TIMEZONE || "Pacific/Auckland";
 
 // Week configuration: Saturday = 6
 export const WEEK_STARTS_ON = 6 as const;

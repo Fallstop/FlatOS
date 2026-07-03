@@ -1,0 +1,5 @@
+# Local database snapshots (e.g. prod.db used for ground-truthing) must never be committed
+*.db
+*.sqlite
+*.db-shm
+*.db-wal

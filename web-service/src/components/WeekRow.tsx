@@ -1,8 +1,9 @@
 "use client";
 
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { ChevronRight } from "lucide-react";
 import type { WeeklyObligation } from "@/lib/calculations";
+import { TIMEZONE } from "@/lib/constants";
 import { formatCurrency, getWeekPaymentStatus } from "@/lib/utils";
 import { WeekStatusIcon, weekPaidAmountColor } from "./WeekStatusIcon";
 
@@ -22,7 +23,7 @@ export function WeekRow({ week, onClick }: {
                 <div className="text-left">
                     <div className="flex items-center gap-2">
                         <p className="font-medium">
-                            {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM")}
+                            {formatInTimeZone(week.weekStart, TIMEZONE, "d MMM")} – {formatInTimeZone(week.weekEnd, TIMEZONE, "d MMM")}
                         </p>
                         {status === "in-progress" && (
                             <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
@@ -31,7 +32,7 @@ export function WeekRow({ week, onClick }: {
                         )}
                     </div>
                     <p className="text-sm text-slate-400">
-                        Due {format(week.dueDate, "EEEE, d MMM")}
+                        Due {formatInTimeZone(week.dueDate, TIMEZONE, "EEEE, d MMM")}
                     </p>
                 </div>
             </div>

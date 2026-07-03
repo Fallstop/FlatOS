@@ -73,6 +73,7 @@ export function FlatmateCard({ flatmate, currentSchedule, paymentStats }: Flatma
                     <h2 className="text-xl font-bold">Edit Flatmate</h2>
                     <button
                         onClick={() => setEditOpen(false)}
+                        aria-label="Close"
                         className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
                     >
                         <X className="w-5 h-5" />
@@ -264,7 +265,8 @@ export function FlatmateCard({ flatmate, currentSchedule, paymentStats }: Flatma
                 <div className="absolute top-4 right-4">
                     <button
                         onClick={() => setMenuOpen(!menuOpen)}
-                        className="p-2 rounded-lg hover:bg-slate-700/50 transition-colors opacity-0 group-hover:opacity-100"
+                        aria-label="Flatmate actions"
+                        className="p-2 rounded-lg hover:bg-slate-700/50 transition-colors opacity-100 lg:opacity-0 lg:group-hover:opacity-100 focus-visible:opacity-100"
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>

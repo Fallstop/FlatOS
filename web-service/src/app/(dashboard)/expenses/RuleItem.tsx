@@ -40,11 +40,13 @@ export function RuleItem({ rule, onEdit, onDelete, isPending }: RuleItemProps) {
                     {patterns.join(" · ")} ({rule.matchMode === "all" ? "match all" : "match any"})
                 </p>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
                 <button
                     onClick={onEdit}
                     disabled={isPending}
                     className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
+                    title="Edit rule"
+                    aria-label="Edit rule"
                 >
                     <Edit2 className="w-4 h-4 text-slate-400" />
                 </button>
@@ -52,6 +54,8 @@ export function RuleItem({ rule, onEdit, onDelete, isPending }: RuleItemProps) {
                     onClick={onDelete}
                     disabled={isPending}
                     className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
+                    title="Delete rule"
+                    aria-label="Delete rule"
                 >
                     <Trash2 className="w-4 h-4 text-rose-400" />
                 </button>

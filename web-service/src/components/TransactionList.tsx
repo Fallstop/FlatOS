@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, Filter, Download, ChevronDown, ChevronUp, X, RefreshCw, ArrowDownRight, ArrowUpRight, CreditCard, Home, HandCoins } from "lucide-react";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { TransactionDetailModal } from "./TransactionDetailModal";
 import { isRentPayment, formatMoney } from "@/lib/utils";
 import { TIMEZONE, getWeekStart } from "@/lib/constants";
@@ -152,12 +152,11 @@ export function TransactionList({ transactions, flatmates, landlords = [], analy
             }
 
             if (dateFrom) {
-                const fromDate = new Date(dateFrom);
+                const fromDate = fromZonedTime(`${dateFrom}T00:00:00`, TIMEZONE);
                 if (tx.date < fromDate) return false;
             }
             if (dateTo) {
-                const toDate = new Date(dateTo);
-                toDate.setHours(23, 59, 59, 999);
+                const toDate = fromZonedTime(`${dateTo}T23:59:59.999`, TIMEZONE);
                 if (tx.date > toDate) return false;
             }
 
@@ -624,7 +623,7 @@ export function TransactionList({ transactions, flatmates, landlords = [], analy
                                         </div>
 
                                         <div className={`text-right font-mono font-medium text-sm ${tx.amount > 0 ? "amount-positive" : "amount-negative"}`}>
-                                            {tx.amount > 0 ? "+" : ""}
+                                            {tx.amount > 0 ? "+" : "-"}
                                             ${formatMoney(tx.amount)}
                                         </div>
                                     </div>
@@ -678,7 +677,7 @@ export function TransactionList({ transactions, flatmates, landlords = [], analy
                                                 {formatInTimeZone(tx.date, TIMEZONE, "d MMM · h:mm a")}
                                             </span>
                                             <span className={`font-mono font-semibold ${tx.amount > 0 ? "amount-positive" : "amount-negative"}`}>
-                                                {tx.amount > 0 ? "+" : ""}${formatMoney(tx.amount)}
+                                                {tx.amount > 0 ? "+" : "-"}${formatMoney(tx.amount)}
                                             </span>
                                         </div>
                                         

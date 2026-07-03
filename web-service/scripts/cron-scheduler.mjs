@@ -5,6 +5,7 @@
 const SYNC_INTERVAL_MS = 90 * 60 * 1000; // 90 minutes
 const CRON_SECRET = process.env.CRON_SECRET;
 const TIMEZONE = process.env.TIMEZONE || "Pacific/Auckland";
+const BASE_URL = `http://localhost:${process.env.PORT || "3000"}`;
 
 // Track whether we've already printed this week (resets each Friday)
 let lastPrintedWeek = null;
@@ -33,10 +34,10 @@ async function tryWeeklyPrint() {
         return; // Already printed this Friday
     }
 
-    console.log(`[cron] Friday after 10pm — triggering weekly receipt print...`);
+    console.log(`[cron] Friday after 8pm — triggering weekly receipt print...`);
 
     try {
-        const response = await fetch("http://localhost:3000/api/cron/print-weekly", {
+        const response = await fetch(`${BASE_URL}/api/cron/print-weekly`, {
             headers: {
                 Authorization: `Bearer ${CRON_SECRET}`,
             },
@@ -64,7 +65,7 @@ async function runSync() {
     console.log(`[cron] ${timestamp} - Running transaction sync...`);
 
     try {
-        const response = await fetch("http://localhost:3000/api/cron/sync", {
+        const response = await fetch(`${BASE_URL}/api/cron/sync`, {
             headers: {
                 Authorization: `Bearer ${CRON_SECRET}`,
             },

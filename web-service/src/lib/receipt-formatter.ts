@@ -1,6 +1,9 @@
-import { format } from "date-fns";
-import { getWeekStart, getWeekEnd } from "./constants";
-import { OVERPAID_THRESHOLD, PAID_THRESHOLD } from "./constants";
+import { formatInTimeZone } from "date-fns-tz";
+import { getWeekStart, getWeekEnd, TIMEZONE } from "./constants";
+import { derivePaymentStatus } from "./utils";
+
+// Receipts must show dates on the flat's calendar regardless of server timezone
+const fmt = (date: Date, pattern: string) => formatInTimeZone(date, TIMEZONE, pattern);
 
 interface WeekSummaryEntry {
     userId: string;
@@ -21,14 +24,6 @@ export interface AllTimeBalanceEntry {
     totalDue: number;
     totalPaid: number;
     balance: number; // positive = credit, negative = owes
-}
-
-function deriveStatus(entry: WeekFlatmateEntry): "paid" | "partial" | "unpaid" | "overpaid" {
-    if (entry.amountPaid === 0 && entry.amountDue > 0) return "unpaid";
-    if (entry.amountPaid >= entry.amountDue * OVERPAID_THRESHOLD) return "overpaid";
-    if (entry.amountPaid >= entry.amountDue * PAID_THRESHOLD) return "paid";
-    if (entry.amountPaid > 0) return "partial";
-    return "paid"; // no amount due
 }
 
 function formatStatusText(status: string, paid: number, due: number): string {
@@ -76,7 +71,7 @@ function formatReceiptBody(
 
     lines.push("=".repeat(W));
     lines.push(center("FLAT WEEKLY BALANCE REPORT"));
-    lines.push(center(`${format(weekStart, "EEE d MMM")} - ${format(weekEnd, "EEE d MMM yyyy")}`));
+    lines.push(center(`${fmt(weekStart, "EEE d MMM")} - ${fmt(weekEnd, "EEE d MMM yyyy")}`));
     lines.push("=".repeat(W));
     lines.push("");
 
@@ -126,7 +121,7 @@ function formatReceiptBody(
     lines.push(padRight("Week Paid:", `$${totalPaid.toFixed(2)}`));
     lines.push(padRight("Week Balance:", formatBalanceAmount(balance)));
     lines.push("=".repeat(W));
-    lines.push(center(`Printed ${format(new Date(), "d MMM yyyy")}`));
+    lines.push(center(`Printed ${fmt(new Date(), "d MMM yyyy")}`));
 
     return lines.join("\n");
 }
@@ -156,7 +151,7 @@ export function formatWeekViewReceipt(
 ): string {
     const entries = flatmates.map((f) => ({
         ...f,
-        status: deriveStatus(f),
+        status: derivePaymentStatus(f.amountPaid, f.amountDue),
     }));
     return formatReceiptBody(weekStart, weekEnd, entries, allTimeBalances);
 }

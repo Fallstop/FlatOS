@@ -103,22 +103,24 @@ function ruleMatchesTransaction(rule: ExpenseMatchingRule, tx: Transaction): boo
     }
 }
 
-/**
- * Match a single transaction to an expense category
- * Only matches outgoing transactions (amount < 0)
- */
-export async function matchExpenseTransaction(tx: Transaction): Promise<ExpenseMatchResult | null> {
-    // Only match outgoing transactions
-    if (tx.amount >= 0) {
-        return null;
-    }
-
-    // Fetch active rules ordered by priority (highest first)
-    const rules = await db
+/** Fetch active rules ordered by priority (highest first). */
+export async function loadActiveExpenseRules(): Promise<ExpenseMatchingRule[]> {
+    return await db
         .select()
         .from(expenseMatchingRules)
         .where(eq(expenseMatchingRules.isActive, true))
         .orderBy(desc(expenseMatchingRules.priority));
+}
+
+/**
+ * Match a single transaction to an expense category
+ * Only matches outgoing transactions (amount < 0)
+ */
+export function matchExpenseTransaction(tx: Transaction, rules: ExpenseMatchingRule[]): ExpenseMatchResult | null {
+    // Only match outgoing transactions
+    if (tx.amount >= 0) {
+        return null;
+    }
 
     // Test each rule in priority order
     for (const rule of rules) {
@@ -167,9 +169,13 @@ export async function matchExpenseTransaction(tx: Transaction): Promise<ExpenseM
 }
 
 /**
- * Process a newly synced transaction for expense matching
+ * Process a newly synced transaction for expense matching.
+ * Pass pre-loaded rules when calling in a loop to avoid re-querying per transaction.
  */
-export async function processTransactionForExpenses(transactionId: string): Promise<boolean> {
+export async function processTransactionForExpenses(
+    transactionId: string,
+    rules?: ExpenseMatchingRule[]
+): Promise<boolean> {
     // Get the transaction
     const [tx] = await db
         .select()
@@ -192,7 +198,7 @@ export async function processTransactionForExpenses(transactionId: string): Prom
     }
 
     // Try to match
-    const match = await matchExpenseTransaction(tx);
+    const match = matchExpenseTransaction(tx, rules ?? (await loadActiveExpenseRules()));
 
     if (match) {
         if (existing) {
@@ -230,26 +236,60 @@ export async function processTransactionForExpenses(transactionId: string): Prom
  * Re-match all non-manual expense transactions
  */
 export async function rematchAllExpenseTransactions(): Promise<{ matched: number; total: number }> {
-    // Fetch all and filter for outgoing transactions
-    const txList = await db.select().from(transactions);
+    // Load everything once, then reconcile in memory
+    const [txList, rules, existingMatches] = await Promise.all([
+        db.select().from(transactions),
+        loadActiveExpenseRules(),
+        db.select().from(expenseTransactions),
+    ]);
+
     const outgoingTxs = txList.filter(tx => tx.amount < 0);
+    const existingByTxId = new Map(existingMatches.map((m) => [m.transactionId, m]));
 
     let matched = 0;
 
     for (const tx of outgoingTxs) {
-        // Check if manually matched
-        const [existing] = await db
-            .select()
-            .from(expenseTransactions)
-            .where(eq(expenseTransactions.transactionId, tx.id))
-            .limit(1);
+        const existing = existingByTxId.get(tx.id);
 
+        // If manually matched, don't overwrite
         if (existing?.manualMatch) {
             continue;
         }
 
-        const result = await processTransactionForExpenses(tx.id);
-        if (result) matched++;
+        const match = matchExpenseTransaction(tx, rules);
+
+        if (match) {
+            if (existing) {
+                if (
+                    existing.categoryId !== match.categoryId ||
+                    existing.matchedRuleId !== match.ruleId ||
+                    existing.matchConfidence !== match.confidence
+                ) {
+                    await db
+                        .update(expenseTransactions)
+                        .set({
+                            categoryId: match.categoryId,
+                            matchedRuleId: match.ruleId,
+                            matchConfidence: match.confidence,
+                        })
+                        .where(eq(expenseTransactions.transactionId, tx.id));
+                }
+            } else {
+                await db.insert(expenseTransactions).values({
+                    transactionId: tx.id,
+                    categoryId: match.categoryId,
+                    matchedRuleId: match.ruleId,
+                    matchConfidence: match.confidence,
+                    manualMatch: false,
+                });
+            }
+            matched++;
+        } else if (existing) {
+            // No match and not manual - remove the old match
+            await db
+                .delete(expenseTransactions)
+                .where(eq(expenseTransactions.transactionId, tx.id));
+        }
     }
 
     return { matched, total: outgoingTxs.length };

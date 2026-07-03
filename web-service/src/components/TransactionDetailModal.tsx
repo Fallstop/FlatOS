@@ -43,7 +43,12 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
     const [isEditing, setIsEditing] = useState(false);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(transaction.matchedUserId);
     const [selectedMatchType, setSelectedMatchType] = useState<string | null>(transaction.matchType);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
+
+    // A flatmate match without a type is stored as matchType null, which no
+    // calculation counts — require a type before allowing save
+    const missingMatchType = !!selectedUserId && !selectedMatchType;
 
     // Parse raw data
     let rawData: RawTransactionData = {};
@@ -54,15 +59,22 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
     }
 
     const handleSaveMatch = () => {
+        setSaveError(null);
         startTransition(async () => {
-            const result = await updateTransactionMatchAction(
-                transaction.id,
-                selectedUserId,
-                selectedMatchType as "rent_payment" | "grocery_reimbursement" | "other" | "expense" | null
-            );
-            if (result.success) {
-                setIsEditing(false);
-                onUpdate?.();
+            try {
+                const result = await updateTransactionMatchAction(
+                    transaction.id,
+                    selectedUserId,
+                    selectedMatchType as "rent_payment" | "grocery_reimbursement" | "other" | "expense" | null
+                );
+                if (result.error) {
+                    setSaveError(result.error);
+                } else {
+                    setIsEditing(false);
+                    onUpdate?.();
+                }
+            } catch {
+                setSaveError("Failed to save match");
             }
         });
     };
@@ -86,6 +98,7 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                     </div>
                     <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
                     >
                         <X className="w-5 h-5" />
@@ -114,7 +127,7 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                                 {formatInTimeZone(transaction.date, TIMEZONE, "d MMM yyyy")}
                             </p>
                             <p className="text-sm text-slate-400">
-                                {formatInTimeZone(transaction.date, TIMEZONE, "h:mm a 'NZDT'")}
+                                {formatInTimeZone(transaction.date, TIMEZONE, "h:mm a zzz")}
                             </p>
                         </div>
                     </div>
@@ -186,6 +199,7 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                                         onClick={() => setIsEditing(true)}
                                         className="p-1 rounded hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200"
                                         title="Edit match"
+                                        aria-label="Edit match"
                                     >
                                         <Edit2 className="w-3.5 h-3.5" />
                                     </button>
@@ -222,7 +236,7 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                                     <div className="flex gap-2">
                                         <button
                                             onClick={handleSaveMatch}
-                                            disabled={isPending}
+                                            disabled={isPending || missingMatchType}
                                             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium transition-colors"
                                         >
                                             {isPending ? (
@@ -238,6 +252,7 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                                             onClick={() => {
                                                 setSelectedUserId(transaction.matchedUserId);
                                                 setSelectedMatchType(transaction.matchType);
+                                                setSaveError(null);
                                                 setIsEditing(false);
                                             }}
                                             disabled={isPending}
@@ -246,6 +261,16 @@ export function TransactionDetailModal({ transaction, onClose, flatmates = [], o
                                             Cancel
                                         </button>
                                     </div>
+                                    {missingMatchType && (
+                                        <p className="text-xs text-slate-400">
+                                            Select a match type to save
+                                        </p>
+                                    )}
+                                    {saveError && (
+                                        <p className="text-xs text-rose-400">
+                                            {saveError}
+                                        </p>
+                                    )}
                                     {selectedUserId && (
                                         <button
                                             onClick={handleClearMatch}

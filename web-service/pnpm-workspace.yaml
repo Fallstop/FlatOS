@@ -4,8 +4,14 @@ packages:
 # NOTE: this file must be copied into the Docker deps stage (see Dockerfile),
 # otherwise pnpm install --frozen-lockfile fails on unapproved build scripts.
 
-# Allow all dependency build scripts (better-sqlite3, esbuild, sharp, etc.)
-dangerouslyAllowAllBuilds: true
+# Only these dependencies may run install/build scripts — an explicit
+# allowlist instead of dangerouslyAllowAllBuilds, so a compromised transitive
+# dependency can't run arbitrary code at install time.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+  - sharp
+  - unrs-resolver
 
 # Match the deploy host's supply-chain policy: only resolve package versions
 # published at least 24h ago. This makes local resolution automatically pick

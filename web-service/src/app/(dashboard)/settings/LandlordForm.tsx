@@ -14,7 +14,7 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
+    const [success, setSuccess] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [showAddForm, setShowAddForm] = useState(false);
 
@@ -22,7 +22,7 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
         e.preventDefault();
         setLoading(true);
         setError(null);
-        setSuccess(false);
+        setSuccess(null);
 
         const formData = new FormData(e.currentTarget);
         const result = editingId
@@ -32,11 +32,11 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
         if (result.error) {
             setError(result.error);
         } else {
-            setSuccess(true);
+            setSuccess(editingId ? "Landlord updated successfully" : "Landlord added successfully");
             setEditingId(null);
             setShowAddForm(false);
             router.refresh();
-            setTimeout(() => setSuccess(false), 3000);
+            setTimeout(() => setSuccess(null), 3000);
         }
         setLoading(false);
     };
@@ -89,6 +89,7 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
                                     }}
                                     className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
                                     title="Edit"
+                                    aria-label="Edit landlord"
                                 >
                                     <Pencil className="w-4 h-4 text-slate-400" />
                                 </button>
@@ -97,6 +98,7 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
                                     disabled={loading}
                                     className="p-2 rounded-lg hover:bg-rose-500/20 transition-colors"
                                     title="Delete"
+                                    aria-label="Delete landlord"
                                 >
                                     <Trash2 className="w-4 h-4 text-rose-400" />
                                 </button>
@@ -116,6 +118,21 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
                 </div>
             )}
 
+            {/* Status banners — rendered outside the form so they stay
+                visible after a successful save closes the form */}
+            {error && (
+                <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-400 text-sm">
+                    {error}
+                </div>
+            )}
+
+            {success && (
+                <div className="p-3 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-sm flex items-center gap-2">
+                    <Check className="w-4 h-4" />
+                    {success}
+                </div>
+            )}
+
             {/* Add/Edit Form */}
             {(showAddForm || editingId) && (
                 <form onSubmit={handleSubmit} className="space-y-4 p-4 rounded-lg bg-slate-800/30 border border-slate-700/50">
@@ -130,6 +147,7 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
                                 setShowAddForm(false);
                                 setError(null);
                             }}
+                            aria-label="Close form"
                             className="p-1 rounded hover:bg-slate-700 transition-colors"
                         >
                             <X className="w-4 h-4 text-slate-400" />
@@ -197,19 +215,6 @@ export function LandlordForm({ landlords }: LandlordFormProps) {
                             Name pattern to match in transaction descriptions
                         </p>
                     </div>
-
-                    {error && (
-                        <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-400 text-sm">
-                            {error}
-                        </div>
-                    )}
-
-                    {success && (
-                        <div className="p-3 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-sm flex items-center gap-2">
-                            <Check className="w-4 h-4" />
-                            {editingId ? "Landlord updated" : "Landlord added"} successfully
-                        </div>
-                    )}
 
                     <button
                         type="submit"

@@ -1,19 +1,18 @@
 import { akahu, getUserToken, getAccountId } from "./akahu";
 import { db } from "./db";
 import { transactions, systemState } from "./db/schema";
-import { eq, sql } from "drizzle-orm";
-import { matchTransaction, matchLandlordTransaction } from "./matching";
-import { processTransactionForExpenses } from "./expense-matching";
+import { eq, inArray } from "drizzle-orm";
+import { loadMatchContext, matchTransaction, matchLandlordTransaction } from "./matching";
+import { processTransactionForExpenses, loadActiveExpenseRules } from "./expense-matching";
 import type { Transaction as AkahuTransaction, EnrichedTransaction } from "akahu";
 
-const SYNC_STATE_KEY = "last_sync_cursor";
+const SYNC_STATE_KEY = "last_sync_cursor"; // Historical key name; stores the last sync timestamp
 const LAST_REFRESH_KEY = "last_manual_refresh";
-const REFRESH_INTERVAL_MS = 60 * 1000; // 1 hour in ms
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // Manual Akahu refresh allowed once per hour
 
 export interface SyncResult {
     inserted: number;
     updated: number;
-    deleted: number;
     errors: string[];
 }
 
@@ -32,7 +31,7 @@ interface AkahuMeta {
 
 function mapAkahuTransaction(tx: AkahuTransaction) {
     const meta = (tx as { meta?: AkahuMeta }).meta;
-    
+
     return {
         akahuId: tx._id,
         date: new Date(tx.date),
@@ -47,16 +46,61 @@ function mapAkahuTransaction(tx: AkahuTransaction) {
     };
 }
 
-export async function syncTransactions(): Promise<SyncResult> {
-    console.log("[Sync] Starting sync...");
+type ExistingTxMatch = Pick<
+    typeof transactions.$inferSelect,
+    "akahuId" | "manualMatch" | "matchedUserId" | "matchType" | "matchConfidence"
+>;
+
+/** Chunked lookup of existing rows by akahuId (SQLite caps bound parameters per query). */
+async function getExistingByAkahuId(akahuIds: string[]) {
+    const existing = new Map<string, ExistingTxMatch>();
+    const CHUNK = 500;
+    for (let i = 0; i < akahuIds.length; i += CHUNK) {
+        const rows = await db
+            .select({
+                akahuId: transactions.akahuId,
+                manualMatch: transactions.manualMatch,
+                matchedUserId: transactions.matchedUserId,
+                matchType: transactions.matchType,
+                matchConfidence: transactions.matchConfidence,
+            })
+            .from(transactions)
+            .where(inArray(transactions.akahuId, akahuIds.slice(i, i + CHUNK)));
+        for (const row of rows) {
+            existing.set(row.akahuId, row);
+        }
+    }
+    return existing;
+}
+
+// Serialize syncs: the 90-minute cron and user-initiated syncs can otherwise
+// overlap and race on the same rows. Concurrent callers share one run.
+let inFlightSync: Promise<SyncResult> | null = null;
+let inFlightFullHistory = false;
+
+export function syncTransactions(options?: { fullHistory?: boolean }): Promise<SyncResult> {
+    const fullHistory = options?.fullHistory ?? false;
+    if (inFlightSync && fullHistory && !inFlightFullHistory) {
+        // A regular sync is running; run the full backfill once it finishes.
+        return inFlightSync.then(() => syncTransactions(options), () => syncTransactions(options));
+    }
+    if (!inFlightSync) {
+        inFlightFullHistory = fullHistory;
+        inFlightSync = doSyncTransactions(fullHistory).finally(() => {
+            inFlightSync = null;
+        });
+    }
+    return inFlightSync;
+}
+
+async function doSyncTransactions(fullHistory: boolean): Promise<SyncResult> {
+    console.log("[Sync] Starting sync...", fullHistory ? "(full history)" : "");
     const userToken = getUserToken();
     const accountId = getAccountId();
-    console.log("[Sync] Account ID:", accountId);
 
     const result: SyncResult = {
         inserted: 0,
         updated: 0,
-        deleted: 0,
         errors: [],
     };
 
@@ -75,12 +119,12 @@ export async function syncTransactions(): Promise<SyncResult> {
 
         const query: { start?: string; cursor?: string } = {};
 
-        // If we've synced before, only fetch recent transactions
-        if (lastSyncState.length > 0 && lastSyncState[0].value !== "initial") {
+        // If we've synced before, only fetch recent transactions.
+        // A full-history backfill skips the window and re-fetches everything
+        // Akahu has (upserts make this safe to repeat).
+        if (!fullHistory && lastSyncState.length > 0 && lastSyncState[0].value !== "initial") {
             query.start = thirtyDaysAgo.toISOString();
         }
-
-        console.log("[Sync] Query params:", query);
 
         // Paginate through all transactions
         let cursor: string | null = null;
@@ -91,98 +135,82 @@ export async function syncTransactions(): Promise<SyncResult> {
                 query.cursor = cursor;
             }
 
-            console.log("[Sync] Fetching page...");
             const page = await akahu.accounts.listTransactions(userToken, accountId, query);
-            console.log("[Sync] Got", page.items.length, "transactions");
             allTransactions.push(...page.items);
             cursor = page.cursor.next;
         } while (cursor !== null);
 
         console.log("[Sync] Total transactions fetched:", allTransactions.length);
 
+        // Look up which of these already exist in one pass, and load the
+        // matching context once, instead of querying per transaction.
+        const [existingByAkahuId, matchCtx, expenseRules] = await Promise.all([
+            getExistingByAkahuId(allTransactions.map((tx) => tx._id)),
+            loadMatchContext(),
+            loadActiveExpenseRules(),
+        ]);
+
         // Process transactions - upsert to handle updates
         for (const tx of allTransactions) {
             try {
                 const mapped = mapAkahuTransaction(tx);
+                const existing = existingByAkahuId.get(tx._id);
 
-                // Check if transaction exists
-                const existing = await db
-                    .select()
-                    .from(transactions)
-                    .where(eq(transactions.akahuId, tx._id))
-                    .limit(1);
-
-                if (existing.length > 0) {
+                if (existing) {
                     // Update existing transaction (preserve matching info if manually set)
                     // Don't overwrite manual matches
-                    if (existing[0].manualMatch) {
-                        // Preserve all match-related fields for manual matches
+                    if (existing.manualMatch) {
                         await db
                             .update(transactions)
                             .set({
                                 ...mapped,
-                                matchedUserId: existing[0].matchedUserId,
-                                matchType: existing[0].matchType,
-                                matchConfidence: existing[0].matchConfidence,
-                                manualMatch: existing[0].manualMatch,
+                                matchedUserId: existing.matchedUserId,
+                                matchType: existing.matchType,
+                                matchConfidence: existing.matchConfidence,
+                                manualMatch: existing.manualMatch,
                             })
                             .where(eq(transactions.akahuId, tx._id));
                     } else {
                         await db
                             .update(transactions)
-                            .set({
-                                ...mapped,
-                            })
+                            .set(mapped)
                             .where(eq(transactions.akahuId, tx._id));
                     }
                     result.updated++;
                 } else {
-                    // Insert new transaction
-                    const [inserted] = await db.insert(transactions).values(mapped).returning();
-                    result.inserted++;
-
-                    // Try to match the new transaction to a flatmate
-                    const match = await matchTransaction(
-                        inserted.id,
+                    // Insert new transaction, matching it to a flatmate/landlord up front
+                    const match = matchTransaction(
+                        matchCtx,
                         mapped.amount,
                         mapped.description,
                         mapped.rawData,
                         mapped.date,
                         mapped.cardSuffix
                     );
+                    const landlordMatch = match
+                        ? null
+                        : matchLandlordTransaction(
+                              matchCtx,
+                              mapped.amount,
+                              mapped.description,
+                              mapped.rawData,
+                              mapped.cardSuffix
+                          );
 
-                    if (match) {
-                        await db
-                            .update(transactions)
-                            .set({
-                                matchedUserId: match.userId,
-                                matchType: match.matchType,
-                                matchConfidence: match.confidence,
-                            })
-                            .where(eq(transactions.id, inserted.id));
-                    } else {
-                        // If no flatmate match, try to match to a landlord (for outgoing payments)
-                        const landlordMatch = await matchLandlordTransaction(
-                            mapped.amount,
-                            mapped.description,
-                            mapped.rawData,
-                            mapped.cardSuffix
-                        );
-
-                        if (landlordMatch) {
-                            await db
-                                .update(transactions)
-                                .set({
-                                    matchedLandlordId: landlordMatch.landlordId,
-                                    matchType: landlordMatch.matchType,
-                                    matchConfidence: landlordMatch.confidence,
-                                })
-                                .where(eq(transactions.id, inserted.id));
-                        }
-                    }
+                    const [inserted] = await db
+                        .insert(transactions)
+                        .values({
+                            ...mapped,
+                            matchedUserId: match?.userId ?? null,
+                            matchedLandlordId: landlordMatch?.landlordId ?? null,
+                            matchType: match?.matchType ?? landlordMatch?.matchType ?? null,
+                            matchConfidence: match?.confidence ?? landlordMatch?.confidence ?? null,
+                        })
+                        .returning({ id: transactions.id });
+                    result.inserted++;
 
                     // Also process for expense categorization
-                    await processTransactionForExpenses(inserted.id);
+                    await processTransactionForExpenses(inserted.id, expenseRules);
                 }
             } catch (error) {
                 result.errors.push(`Failed to process transaction ${tx._id}: ${error}`);
@@ -274,18 +302,3 @@ export async function getLastSyncTime(): Promise<Date | null> {
     return new Date(syncState[0].value);
 }
 
-export async function getTransactionStats() {
-    const stats = await db
-        .select({
-            total: sql<number>`count(*)`,
-            totalIn: sql<number>`sum(case when amount > 0 then amount else 0 end)`,
-            totalOut: sql<number>`sum(case when amount < 0 then amount else 0 end)`,
-        })
-        .from(transactions);
-
-    return {
-        totalTransactions: stats[0]?.total ?? 0,
-        totalIn: stats[0]?.totalIn ?? 0,
-        totalOut: Math.abs(stats[0]?.totalOut ?? 0),
-    };
-}

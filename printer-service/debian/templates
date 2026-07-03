@@ -2,7 +2,8 @@ Template: printer-service/ws-url
 Type: string
 Description: WebSocket URL to connect to:
  The full WebSocket URL the printer service will connect to
- for receiving print jobs (e.g. wss://example.com/ws).
+ for receiving print jobs
+ (e.g. wss://your-host/print/ws?token=<token from FlatOS Settings page>).
 
 Template: printer-service/printer-mode
 Type: select

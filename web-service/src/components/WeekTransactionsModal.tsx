@@ -1,8 +1,9 @@
 "use client";
 
 import { X, Dot } from "lucide-react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import type { WeeklyObligation } from "@/lib/calculations";
+import { TIMEZONE } from "@/lib/constants";
 import { formatCurrency, getWeekPaymentStatus } from "@/lib/utils";
 import { WeekStatusIcon, weekStatusLabel, weekPaidAmountColor } from "./WeekStatusIcon";
 import { TransactionTable, type TransactionRowData } from "./TransactionRow";
@@ -30,7 +31,7 @@ export function WeekTransactionsModal({
                     <div>
                         <div className="flex items-center gap-2">
                             <h2 className="text-lg font-semibold">
-                                {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM yyyy")}
+                                {formatInTimeZone(week.weekStart, TIMEZONE, "d MMM")} – {formatInTimeZone(week.weekEnd, TIMEZONE, "d MMM yyyy")}
                             </h2>
                             {status === "in-progress" && (
                                 <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
@@ -39,11 +40,12 @@ export function WeekTransactionsModal({
                             )}
                         </div>
                         <p className="text-sm text-slate-400 mt-1">
-                            Due {format(week.dueDate, "EEEE, d MMM")}
+                            Due {formatInTimeZone(week.dueDate, TIMEZONE, "EEEE, d MMM")}
                         </p>
                     </div>
                     <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
                     >
                         <X className="w-5 h-5 text-slate-400" />

@@ -9,7 +9,11 @@ export default async function DashboardLayout({
 }) {
     const session = await auth();
 
-    if (!session?.user) {
+    // session.user.id is only populated when the user still exists in the DB
+    // (see the session callback in lib/auth.ts). Checking it here means a
+    // flatmate removed by the admin loses access immediately instead of
+    // keeping a valid 30-day JWT session.
+    if (!session?.user?.id) {
         redirect("/auth/signin");
     }
 

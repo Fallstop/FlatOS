@@ -1,9 +1,10 @@
 "use client";
 
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, Clock } from "lucide-react";
 import { useState } from "react";
 import type { FlatmateBalance, WeeklyObligation } from "@/lib/calculations";
+import { TIMEZONE } from "@/lib/constants";
 import { PaymentHistoryChart } from "@/components/PaymentHistoryChart";
 import { formatCurrency, getWeekPaymentStatus } from "@/lib/utils";
 import { WeekStatusIcon, weekPaidAmountColor } from "@/components/WeekStatusIcon";
@@ -26,7 +27,7 @@ function WeekDetailRow({ week, isExpanded, onToggle }: {
                     <div className="text-left">
                         <div className="flex items-center gap-2">
                             <p className="font-medium">
-                                {format(week.weekStart, "d MMM")} – {format(week.weekEnd, "d MMM yyyy")}
+                                {formatInTimeZone(week.weekStart, TIMEZONE, "d MMM")} – {formatInTimeZone(week.weekEnd, TIMEZONE, "d MMM yyyy")}
                             </p>
                             {status === "in-progress" && (
                                 <span className="text-xs px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded-full">
@@ -35,7 +36,7 @@ function WeekDetailRow({ week, isExpanded, onToggle }: {
                             )}
                         </div>
                         <p className="text-sm text-slate-400">
-                            Due {format(week.dueDate, "EEEE, d MMM")}
+                            Due {formatInTimeZone(week.dueDate, TIMEZONE, "EEEE, d MMM")}
                         </p>
                     </div>
                 </div>
@@ -69,7 +70,7 @@ function WeekDetailRow({ week, isExpanded, onToggle }: {
                             <div>
                                 <p className="text-sm font-medium">{tx.description}</p>
                                 <p className="text-xs text-slate-500">
-                                    {format(tx.date, "d MMM yyyy, h:mm a")}
+                                    {formatInTimeZone(tx.date, TIMEZONE, "d MMM yyyy, h:mm a")}
                                     {tx.matchType && (
                                         <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
                                             {tx.matchType.replace("_", " ")}

@@ -1,7 +1,7 @@
 "use client";
 
 import { format, startOfMonth, addMonths, addDays, differenceInDays, startOfDay, endOfMonth, max, min } from "date-fns";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragStartEvent, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronLeft, ChevronRight, Calendar, Plus, Download } from "lucide-react";
@@ -208,13 +208,29 @@ export function HorizontalTimeline({ flatmates, schedulesByUser, isAdmin, analys
     const analysisOffset = analysisStartDate ? differenceInDays(analysisStartDate, startDate) : null;
     const analysisPosition = analysisOffset !== null ? analysisOffset * DAY_WIDTH : null;
 
-    // Scroll to today on mount
+    // Scroll to today on mount only — re-running when past months are
+    // prepended would yank the viewport back to today mid-scroll
+    const didInitScroll = useRef(false);
     useEffect(() => {
+        if (didInitScroll.current) return;
         if (scrollRef.current) {
+            didInitScroll.current = true;
             const containerWidth = scrollRef.current.clientWidth;
             scrollRef.current.scrollLeft = todayPosition - containerWidth / 2;
         }
     }, [todayPosition]);
+
+    // When past months are prepended, content grows on the left — shift the
+    // scroll position by the added width so the viewport stays stable
+    const prevStartDateRef = useRef(startDate);
+    useLayoutEffect(() => {
+        const prevStartDate = prevStartDateRef.current;
+        if (scrollRef.current && startDate < prevStartDate) {
+            const daysAdded = differenceInDays(prevStartDate, startDate);
+            scrollRef.current.scrollLeft += daysAdded * DAY_WIDTH;
+        }
+        prevStartDateRef.current = startDate;
+    }, [startDate]);
 
     // Handle infinite scroll
     const handleScroll = useCallback(() => {

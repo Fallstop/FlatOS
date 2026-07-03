@@ -12,18 +12,19 @@ const sizeClass = { sm: "w-4 h-4", md: "w-5 h-5" };
 
 export function WeekStatusIcon({ status, size = "md" }: WeekStatusIconProps) {
     const cls = sizeClass[size];
+    const label = weekStatusLabel(status);
 
     switch (status) {
         case "in-progress":
-            return <Clock className={`${cls} text-teal-400`} />;
+            return <Clock className={`${cls} text-teal-400`} role="img" aria-label={label}><title>{label}</title></Clock>;
         case "overpaid":
-            return <CheckCircle2 className={`${cls} text-cyan-400`} />;
+            return <CheckCircle2 className={`${cls} text-cyan-400`} role="img" aria-label={label}><title>{label}</title></CheckCircle2>;
         case "paid":
-            return <CheckCircle2 className={`${cls} text-emerald-400`} />;
+            return <CheckCircle2 className={`${cls} text-emerald-400`} role="img" aria-label={label}><title>{label}</title></CheckCircle2>;
         case "partial":
-            return <Clock className={`${cls} text-amber-400`} />;
+            return <Clock className={`${cls} text-amber-400`} role="img" aria-label={label}><title>{label}</title></Clock>;
         case "unpaid":
-            return <AlertCircle className={`${cls} text-rose-400`} />;
+            return <AlertCircle className={`${cls} text-rose-400`} role="img" aria-label={label}><title>{label}</title></AlertCircle>;
     }
 }
 

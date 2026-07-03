@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { Calendar, CreditCard, CheckCircle, Copy, Check, ArrowDown } from "lucide-react";
-import { format, nextThursday, addWeeks, differenceInWeeks, isBefore, startOfDay, isAfter, addDays } from "date-fns";
+import { nextThursday, addWeeks, differenceInWeeks, isBefore, startOfDay, isAfter, addDays } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { TIMEZONE } from "@/lib/constants";
 import { formatMoney } from "@/lib/utils";
 
 interface PaymentTransaction {
@@ -222,7 +224,7 @@ export function AutopaymentHelper({
                 } else if (isOngoing && !hasNextSchedule) {
                     description = "Standard weekly payment (ongoing)";
                 } else {
-                    description = `Standard weekly payment until ${format(segment.end, "d MMM")}`;
+                    description = `Standard weekly payment until ${formatInTimeZone(segment.end, TIMEZONE, "d MMM")}`;
                 }
                 
                 steps.push({
@@ -251,7 +253,7 @@ export function AutopaymentHelper({
     const isAhead = totalBalance >= 0.01;
     const isBehind = totalBalance <= -0.01;
 
-    const formatThursday = (date: Date) => format(date, "EEE d MMM yyyy");
+    const formatThursday = (date: Date) => formatInTimeZone(date, TIMEZONE, "EEE d MMM yyyy");
 
     return (
         <div className="glass rounded-2xl overflow-hidden card-hover animate-fade-in">
@@ -302,7 +304,7 @@ export function AutopaymentHelper({
                             <p className="text-slate-400 text-sm mt-1">
                                 Weekly rate: <span className="font-mono">${formatMoney(currentWeeklyRate)}</span>
                                 {scheduleEndDate && (
-                                    <> • Ends: {format(scheduleEndDate, "d MMM yyyy")}</>
+                                    <> • Ends: {formatInTimeZone(scheduleEndDate, TIMEZONE, "d MMM yyyy")}</>
                                 )}
                             </p>
                         </div>

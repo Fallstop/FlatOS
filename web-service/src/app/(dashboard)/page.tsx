@@ -58,78 +58,68 @@ export default async function DashboardPage() {
     const session = await auth();
     const isAdmin = session?.user?.role === "admin";
 
-    // Get sync status
-    const lastSyncTime = await getLastSyncTime();
-    const { canRefresh, nextRefreshAt } = await canTriggerManualRefresh();
-
-    // Fetch recent transactions with matched user and landlord names
-    const recentTxs = await db
-        .select({
-            id: transactions.id,
-            akahuId: transactions.akahuId,
-            date: transactions.date,
-            amount: transactions.amount,
-            description: transactions.description,
-            merchant: transactions.merchant,
-            merchantLogo: transactions.merchantLogo,
-            category: transactions.category,
-            rawData: transactions.rawData,
-            cardSuffix: transactions.cardSuffix,
-            otherAccount: transactions.otherAccount,
-            matchedUserId: transactions.matchedUserId,
-            matchedLandlordId: transactions.matchedLandlordId,
-            matchType: transactions.matchType,
-            matchConfidence: transactions.matchConfidence,
-            manualMatch: transactions.manualMatch,
-            createdAt: transactions.createdAt,
-            matchedUserName: users.name,
-            matchedLandlordName: landlords.name,
-        })
-        .from(transactions)
-        .leftJoin(users, eq(transactions.matchedUserId, users.id))
-        .leftJoin(landlords, eq(transactions.matchedLandlordId, landlords.id))
-        .orderBy(desc(transactions.date))
-        .limit(5);
-
-    // Get stats
-    const stats = await db
-        .select({
-            totalIn: sql<number>`sum(case when amount > 0 then amount else 0 end)`,
-            totalOut: sql<number>`sum(case when amount < 0 then amount else 0 end)`,
-            count: sql<number>`count(*)`,
-        })
-        .from(transactions);
+    // Everything below is independent — fetch it all in parallel
+    const [
+        lastSyncTime,
+        { canRefresh, nextRefreshAt },
+        recentTxs,
+        stats,
+        flatmateCount,
+        weekSummary,
+        landlordSummary,
+        userBalance,
+        flatmates,
+    ] = await Promise.all([
+        getLastSyncTime(),
+        canTriggerManualRefresh(),
+        // Recent transactions with matched user and landlord names
+        db
+            .select({
+                id: transactions.id,
+                akahuId: transactions.akahuId,
+                date: transactions.date,
+                amount: transactions.amount,
+                description: transactions.description,
+                merchant: transactions.merchant,
+                merchantLogo: transactions.merchantLogo,
+                category: transactions.category,
+                rawData: transactions.rawData,
+                cardSuffix: transactions.cardSuffix,
+                otherAccount: transactions.otherAccount,
+                matchedUserId: transactions.matchedUserId,
+                matchedLandlordId: transactions.matchedLandlordId,
+                matchType: transactions.matchType,
+                matchConfidence: transactions.matchConfidence,
+                manualMatch: transactions.manualMatch,
+                createdAt: transactions.createdAt,
+                matchedUserName: users.name,
+                matchedLandlordName: landlords.name,
+            })
+            .from(transactions)
+            .leftJoin(users, eq(transactions.matchedUserId, users.id))
+            .leftJoin(landlords, eq(transactions.matchedLandlordId, landlords.id))
+            .orderBy(desc(transactions.date))
+            .limit(5),
+        db
+            .select({
+                totalIn: sql<number>`sum(case when amount > 0 then amount else 0 end)`,
+                totalOut: sql<number>`sum(case when amount < 0 then amount else 0 end)`,
+                count: sql<number>`count(*)`,
+            })
+            .from(transactions),
+        // Flatmate count (all users including admin)
+        db.select({ count: sql<number>`count(*)` }).from(users),
+        getCurrentWeekSummary(),
+        getLandlordPaymentSummary(),
+        // Current user's balance, if their session maps to a flatmate entry
+        session?.user?.id ? calculateUserBalance(session.user.id) : Promise.resolve(null),
+        // All flatmates for transaction matching override
+        db.select({ id: users.id, name: users.name, email: users.email }).from(users),
+    ]);
 
     const totalIn = stats[0]?.totalIn ?? 0;
     const totalOut = Math.abs(stats[0]?.totalOut ?? 0);
     const transactionCount = stats[0]?.count ?? 0;
-
-    // Get flatmate count (all users including admin)
-    const flatmateCount = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(users);
-
-    // Get current week payment status
-    const weekSummary = await getCurrentWeekSummary();
-
-    // Get landlord payment summary
-    const landlordSummary = await getLandlordPaymentSummary();
-
-    // Get current user's balance if they have a matching entry
-    const currentUser = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.email, session?.user?.email ?? ""))
-        .limit(1);
-    
-    const userBalance = currentUser[0] 
-        ? await calculateUserBalance(currentUser[0].id)
-        : null;
-
-    // Get all flatmates for transaction matching override
-    const flatmates = await db
-        .select({ id: users.id, name: users.name, email: users.email })
-        .from(users);
 
     return (
         <div className="max-w-full w-7xl mx-auto page-enter">

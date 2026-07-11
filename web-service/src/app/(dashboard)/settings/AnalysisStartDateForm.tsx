@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { setAnalysisStartDateAction } from "@/lib/actions";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { TIMEZONE } from "@/lib/constants";
 import { Calendar, X } from "lucide-react";
 
 interface AnalysisStartDateFormProps {
@@ -13,7 +14,9 @@ export function AnalysisStartDateForm({ initialValue }: AnalysisStartDateFormPro
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-    const currentDate = initialValue ? format(new Date(initialValue), "yyyy-MM-dd") : "";
+    const currentDate = initialValue
+        ? formatInTimeZone(new Date(initialValue), TIMEZONE, "yyyy-MM-dd")
+        : "";
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();

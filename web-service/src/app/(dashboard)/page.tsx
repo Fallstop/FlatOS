@@ -7,6 +7,7 @@ import { SyncButton } from "@/components/SyncButton";
 import { RecentTransactions } from "@/components/RecentTransactions";
 import { AutopaymentHelper } from "@/components/AutopaymentHelper";
 import { getLastSyncTime, canTriggerManualRefresh } from "@/lib/sync";
+import { isSyncStale } from "@/lib/audit";
 import { getCurrentWeekSummary, calculateUserBalance, getLandlordPaymentSummary } from "@/lib/calculations";
 import { formatMoney } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
@@ -127,11 +128,18 @@ export default async function DashboardPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 animate-fade-in">
                 <div>
                     <h1 className="text-2xl font-bold">Welcome back, {session?.user?.name?.split(" ")[0]}</h1>
-                    <p className="text-slate-400 mt-1">
-                        {lastSyncTime
-                            ? `Last synced ${formatDistanceToNow(lastSyncTime, { addSuffix: true })}`
-                            : "Not synced yet - sync transactions to get started"}
-                    </p>
+                    {lastSyncTime && !isSyncStale(lastSyncTime) ? (
+                        <p className="text-slate-400 mt-1">
+                            Last synced {formatDistanceToNow(lastSyncTime, { addSuffix: true })}
+                        </p>
+                    ) : (
+                        <p className="text-amber-400 mt-1 flex items-center gap-1.5">
+                            <AlertCircle className="w-4 h-4" />
+                            {lastSyncTime
+                                ? `Bank data is stale — last synced ${formatDistanceToNow(lastSyncTime, { addSuffix: true })}; recent payments may be missing`
+                                : "Not synced yet - sync transactions to get started"}
+                        </p>
+                    )}
                 </div>
                 <SyncButton
                     isAdmin={isAdmin}
@@ -157,9 +165,11 @@ export default async function DashboardPage() {
                 /></div>
                 <div className="animate-fade-in-up stagger-3"><StatCard
                     title="Net Balance"
-                    value={`$${formatMoney(totalIn - totalOut)}`}
+                    value={`${totalIn - totalOut < 0 ? "-" : ""}$${formatMoney(totalIn - totalOut)}`}
                     subtitle="In - Out"
-                    icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
+                    icon={totalIn - totalOut < 0
+                        ? <TrendingDown className="w-5 h-5 text-rose-400" />
+                        : <TrendingUp className="w-5 h-5 text-emerald-400" />}
                 /></div>
                 <div className="animate-fade-in-up stagger-4"><StatCard
                     title="Active Flatmates"
@@ -227,6 +237,8 @@ export default async function DashboardPage() {
                                             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                                         ) : fm.status === "overpaid" ? (
                                             <CheckCircle2 className="w-5 h-5 text-cyan-400" />
+                                        ) : fm.status === "in-progress" ? (
+                                            <Clock className="w-5 h-5 text-teal-400" />
                                         ) : fm.status === "partial" ? (
                                             <Clock className="w-5 h-5 text-amber-400" />
                                         ) : (

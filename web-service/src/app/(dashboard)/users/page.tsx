@@ -1,9 +1,10 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, paymentSchedules, transactions } from "@/lib/db/schema";
-import { desc, and, lte, sql } from "drizzle-orm";
+import { desc, eq, and, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { UserPlus, Building2, DollarSign } from "lucide-react";
+import { getActiveSchedule } from "@/lib/schedule-utils";
 import { AddFlatmateDialog } from "./AddFlatmateDialog";
 import { FlatmateCard } from "./FlatmateCard";
 import { RematchButton } from "./RematchButton";
@@ -21,19 +22,26 @@ export default async function UsersPage() {
         .from(users)
         .orderBy(desc(users.createdAt));
 
-    // Get current payment schedules for each user
+    // Resolve each user's CURRENT schedule with the same rule the balance
+    // engine uses (overlapping schedules: latest start wins) — summing every
+    // schedule that merely spans today double-counts rate changes.
     const now = new Date();
-    const currentSchedules = await db
-        .select()
-        .from(paymentSchedules)
-        .where(
-            and(
-                lte(paymentSchedules.startDate, now),
-                sql`(${paymentSchedules.endDate} IS NULL OR ${paymentSchedules.endDate} >= ${now.getTime()})`
-            )
-        );
+    const allSchedules = await db.select().from(paymentSchedules);
+    const schedulesByUser = new Map<string, typeof allSchedules>();
+    for (const s of allSchedules) {
+        const list = schedulesByUser.get(s.userId);
+        if (list) list.push(s);
+        else schedulesByUser.set(s.userId, [s]);
+    }
+    const scheduleMap = new Map(
+        [...schedulesByUser.entries()]
+            .map(([userId, list]) => [userId, getActiveSchedule(list, now)] as const)
+            .filter((entry): entry is [string, NonNullable<(typeof entry)[1]>] => entry[1] !== null)
+    );
+    const weeklyTotal = [...scheduleMap.values()].reduce((sum, s) => sum + s.weeklyAmount, 0);
 
-    // Get payment counts per user (for stats)
+    // Rent payments received per user (the card labels this "payments", so
+    // don't fold in card expenses and reimbursements)
     const paymentCounts = await db
         .select({
             userId: transactions.matchedUserId,
@@ -41,13 +49,15 @@ export default async function UsersPage() {
             total: sql<number>`sum(amount)`,
         })
         .from(transactions)
-        .where(sql`${transactions.matchedUserId} IS NOT NULL`)
+        .where(
+            and(
+                sql`${transactions.matchedUserId} IS NOT NULL`,
+                eq(transactions.matchType, "rent_payment"),
+                sql`${transactions.amount} > 0`
+            )
+        )
         .groupBy(transactions.matchedUserId);
 
-    // Create a map for quick lookup
-    const scheduleMap = new Map(
-        currentSchedules.map((s) => [s.userId, s])
-    );
     const paymentMap = new Map(
         paymentCounts.map((p) => [p.userId, p])
     );
@@ -101,7 +111,7 @@ export default async function UsersPage() {
                         </div>
                         <div>
                             <p className="text-2xl font-bold">
-                                ${currentSchedules.reduce((sum, s) => sum + s.weeklyAmount, 0).toFixed(0)}
+                                ${weeklyTotal.toFixed(0)}
                             </p>
                             <p className="text-sm text-slate-400">Weekly Total</p>
                         </div>

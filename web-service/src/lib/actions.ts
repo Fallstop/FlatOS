@@ -6,7 +6,22 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { users, transactions, paymentSchedules, systemState, landlords } from "@/lib/db/schema";
 import { isSaturday, isFriday, previousSaturday, nextFriday, nextSaturday, previousFriday } from "date-fns";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { TIMEZONE } from "@/lib/constants";
+import { parseDateInputInTz } from "@/lib/schedule-utils";
 import { eq } from "drizzle-orm";
+
+/**
+ * Parse a submitted date as midnight in the flat's timezone. Bare yyyy-MM-dd
+ * strings would otherwise become UTC midnight = NZ noon, shifting every
+ * schedule/analysis window half a day. Full ISO instants pass through as-is.
+ */
+function parseSubmittedDate(dateStr: string): Date {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return parseDateInputInTz(dateStr);
+    }
+    return new Date(dateStr);
+}
 
 export async function signOutAction() {
     await nextAuthSignOut({ redirectTo: "/auth/signin" });
@@ -347,14 +362,16 @@ export async function updateTransactionMatchAction(
             }
         }
 
-        // Update the transaction with manual override
+        // Update the transaction with manual override. An explicit UNMATCH is
+        // also a manual decision — leaving manualMatch=false would let the
+        // next sync/rematch silently reinstate the rejected auto-match.
         await db
             .update(transactions)
             .set({
                 matchedUserId,
                 matchType,
                 matchConfidence: matchedUserId ? 1.0 : null,
-                manualMatch: matchedUserId !== null,
+                manualMatch: true,
             })
             .where(eq(transactions.id, transactionId));
 
@@ -392,14 +409,14 @@ export async function addScheduleAction(formData: FormData) {
         return { error: "Invalid weekly amount" };
     }
 
-    const startDate = new Date(startDateStr);
+    const startDate = parseSubmittedDate(startDateStr);
     if (isNaN(startDate.getTime())) {
         return { error: "Invalid start date" };
     }
 
     let endDate: Date | null = null;
     if (endDateStr) {
-        endDate = new Date(endDateStr);
+        endDate = parseSubmittedDate(endDateStr);
         if (isNaN(endDate.getTime())) {
             return { error: "Invalid end date" };
         }
@@ -453,14 +470,14 @@ export async function updateScheduleAction(formData: FormData) {
         return { error: "Invalid weekly amount" };
     }
 
-    const startDate = new Date(startDateStr);
+    const startDate = parseSubmittedDate(startDateStr);
     if (isNaN(startDate.getTime())) {
         return { error: "Invalid start date" };
     }
 
     let endDate: Date | null = null;
     if (endDateStr) {
-        endDate = new Date(endDateStr);
+        endDate = parseSubmittedDate(endDateStr);
         if (isNaN(endDate.getTime())) {
             return { error: "Invalid end date" };
         }
@@ -604,6 +621,22 @@ export async function importSchedulesAction(schedulesJson: string) {
     const errors: string[] = [];
     const rows: Array<typeof paymentSchedules.$inferInsert> = [];
 
+    // Week-boundary snapping happens on the flat's calendar: the zoned
+    // wall-clock date is snapped, then converted back to a real instant.
+    const snapToWeekday = (date: Date, align: "saturday" | "friday"): Date => {
+        let zoned = toZonedTime(date, TIMEZONE);
+        const isTarget = align === "saturday" ? isSaturday : isFriday;
+        if (!isTarget(zoned)) {
+            const prev = align === "saturday" ? previousSaturday(zoned) : previousFriday(zoned);
+            const next = align === "saturday" ? nextSaturday(zoned) : nextFriday(zoned);
+            const diffToPrev = Math.abs(zoned.getTime() - prev.getTime());
+            const diffToNext = Math.abs(next.getTime() - zoned.getTime());
+            zoned = diffToPrev <= diffToNext ? prev : next;
+        }
+        zoned.setHours(0, 0, 0, 0);
+        return fromZonedTime(zoned, TIMEZONE);
+    };
+
     for (const schedule of schedules) {
         const userId = emailToUserId.get(schedule.flatmateEmail);
         if (!userId) {
@@ -611,39 +644,21 @@ export async function importSchedulesAction(schedulesJson: string) {
             continue;
         }
 
-        let startDate = new Date(schedule.startDate);
+        let startDate = parseSubmittedDate(schedule.startDate);
         if (isNaN(startDate.getTime())) {
             errors.push(`Invalid start date for ${schedule.flatmateEmail}: ${schedule.startDate}`);
             continue;
         }
-
-        // Snap start date to nearest Saturday (week start)
-        if (!isSaturday(startDate)) {
-            // Check which Saturday is closer: previous or next
-            const prevSat = previousSaturday(startDate);
-            const nextSat = nextSaturday(startDate);
-            const diffToPrev = Math.abs(startDate.getTime() - prevSat.getTime());
-            const diffToNext = Math.abs(nextSat.getTime() - startDate.getTime());
-            startDate = diffToPrev <= diffToNext ? prevSat : nextSat;
-        }
+        startDate = snapToWeekday(startDate, "saturday");
 
         let endDate: Date | null = null;
         if (schedule.endDate) {
-            endDate = new Date(schedule.endDate);
+            endDate = parseSubmittedDate(schedule.endDate);
             if (isNaN(endDate.getTime())) {
                 errors.push(`Invalid end date for ${schedule.flatmateEmail}: ${schedule.endDate}`);
                 continue;
             }
-
-            // Snap end date to nearest Friday (week end)
-            if (!isFriday(endDate)) {
-                // Check which Friday is closer: previous or next
-                const prevFri = previousFriday(endDate);
-                const nextFri = nextFriday(endDate);
-                const diffToPrev = Math.abs(endDate.getTime() - prevFri.getTime());
-                const diffToNext = Math.abs(nextFri.getTime() - endDate.getTime());
-                endDate = diffToPrev <= diffToNext ? prevFri : nextFri;
-            }
+            endDate = snapToWeekday(endDate, "friday");
         }
 
         rows.push({
@@ -717,7 +732,10 @@ export async function setAnalysisStartDateAction(formData: FormData) {
         return { success: true, cleared: true };
     }
 
-    const date = new Date(dateStr);
+    // Interpret the chosen calendar date in the flat's timezone — stored as
+    // UTC midnight it would be NZ noon, dropping Saturday-morning payments
+    // from the very first analysed week.
+    const date = parseSubmittedDate(dateStr);
     if (isNaN(date.getTime())) {
         return { error: "Invalid date format" };
     }
@@ -874,6 +892,7 @@ export async function getReceiptPreviewAction(): Promise<{ text?: string; error?
         const balances = await calculateAllBalances();
 
         const allTimeBalances = balances.flatmates.map((f) => ({
+            userId: f.userId,
             userName: f.userName,
             totalDue: f.totalDue,
             totalPaid: f.totalPaid,
@@ -958,6 +977,7 @@ export async function triggerPrintWeekAction(
         // reflect the real balances, not whatever the client sends.
         const balances = await calculateAllBalances();
         const allTimeBalances = balances.flatmates.map((f) => ({
+            userId: f.userId,
             userName: f.userName,
             totalDue: f.totalDue,
             totalPaid: f.totalPaid,
@@ -965,14 +985,22 @@ export async function triggerPrintWeekAction(
         }));
 
         let weekEnd: Date | null = null;
-        const weekFlatmates: Array<{ userName: string | null; amountDue: number; amountPaid: number }> = [];
+        let weekInProgress = false;
+        const weekFlatmates: Array<{
+            userId: string;
+            userName: string | null;
+            amountDue: number;
+            amountPaid: number;
+        }> = [];
         for (const f of balances.flatmates) {
             const week = f.weeklyBreakdown.find(
                 (w) => w.weekStart.getTime() === weekStart.getTime()
             );
             if (week) {
                 weekEnd = week.weekEnd;
+                weekInProgress = week.isInProgress ?? false;
                 weekFlatmates.push({
+                    userId: f.userId,
                     userName: f.userName,
                     amountDue: week.amountDue,
                     amountPaid: week.amountPaid,
@@ -984,7 +1012,13 @@ export async function triggerPrintWeekAction(
             return { error: "Week not found" };
         }
 
-        const text = formatWeekViewReceipt(weekStart, weekEnd, weekFlatmates, allTimeBalances);
+        const text = formatWeekViewReceipt(
+            weekStart,
+            weekEnd,
+            weekFlatmates,
+            allTimeBalances,
+            weekInProgress
+        );
         return await sendToPrintServer(text);
     } catch (error) {
         console.error("Error triggering week print:", error);

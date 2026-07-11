@@ -2,7 +2,7 @@ import { akahu, getUserToken, getAccountId } from "./akahu";
 import { db } from "./db";
 import { transactions, systemState } from "./db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { loadMatchContext, matchTransaction, matchLandlordTransaction } from "./matching";
+import { loadMatchContext, matchEither, reconcileSplitRentPayments } from "./matching";
 import { processTransactionForExpenses, loadActiveExpenseRules } from "./expense-matching";
 import type { Transaction as AkahuTransaction, EnrichedTransaction } from "akahu";
 
@@ -48,7 +48,7 @@ function mapAkahuTransaction(tx: AkahuTransaction) {
 
 type ExistingTxMatch = Pick<
     typeof transactions.$inferSelect,
-    "akahuId" | "manualMatch" | "matchedUserId" | "matchType" | "matchConfidence"
+    "id" | "akahuId" | "manualMatch" | "matchedUserId" | "matchType" | "matchConfidence"
 >;
 
 /** Chunked lookup of existing rows by akahuId (SQLite caps bound parameters per query). */
@@ -58,6 +58,7 @@ async function getExistingByAkahuId(akahuIds: string[]) {
     for (let i = 0; i < akahuIds.length; i += CHUNK) {
         const rows = await db
             .select({
+                id: transactions.id,
                 akahuId: transactions.akahuId,
                 manualMatch: transactions.manualMatch,
                 matchedUserId: transactions.matchedUserId,
@@ -112,8 +113,11 @@ async function doSyncTransactions(fullHistory: boolean): Promise<SyncResult> {
             .where(eq(systemState.key, SYNC_STATE_KEY))
             .limit(1);
 
-        // For the first sync, fetch all transactions for this account
-        // For subsequent syncs, we'll fetch from the last 30 days to catch updates
+        // For the first sync, fetch all transactions for this account.
+        // For subsequent syncs, fetch at least the last 30 days (to catch
+        // pending->settled updates), extended back past the last successful
+        // sync — a fixed 30-day window would permanently drop everything in
+        // the gap after any outage longer than a month.
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -123,7 +127,11 @@ async function doSyncTransactions(fullHistory: boolean): Promise<SyncResult> {
         // A full-history backfill skips the window and re-fetches everything
         // Akahu has (upserts make this safe to repeat).
         if (!fullHistory && lastSyncState.length > 0 && lastSyncState[0].value !== "initial") {
-            query.start = thirtyDaysAgo.toISOString();
+            const lastSyncedAt = new Date(lastSyncState[0].value);
+            const overlapStart = isNaN(lastSyncedAt.getTime())
+                ? thirtyDaysAgo
+                : new Date(lastSyncedAt.getTime() - 3 * 24 * 60 * 60 * 1000);
+            query.start = (overlapStart < thirtyDaysAgo ? overlapStart : thirtyDaysAgo).toISOString();
         }
 
         // Paginate through all transactions
@@ -171,15 +179,37 @@ async function doSyncTransactions(fullHistory: boolean): Promise<SyncResult> {
                             })
                             .where(eq(transactions.akahuId, tx._id));
                     } else {
+                        // Akahu enriches transactions after settlement (references,
+                        // merchant, other_account often only appear then), so
+                        // matching must be re-run on the fresh data — otherwise a
+                        // payment that synced while pending stays unmatched forever.
+                        const { userMatch, landlordMatch } = matchEither(
+                            matchCtx,
+                            mapped.amount,
+                            mapped.description,
+                            mapped.rawData,
+                            mapped.date,
+                            mapped.cardSuffix
+                        );
                         await db
                             .update(transactions)
-                            .set(mapped)
+                            .set({
+                                ...mapped,
+                                matchedUserId: userMatch?.userId ?? null,
+                                matchedLandlordId: landlordMatch?.landlordId ?? null,
+                                matchType: userMatch?.matchType ?? landlordMatch?.matchType ?? null,
+                                matchConfidence:
+                                    userMatch?.confidence ?? landlordMatch?.confidence ?? null,
+                            })
                             .where(eq(transactions.akahuId, tx._id));
+                        // Re-run expense categorization too (safe: preserves manual
+                        // matches, removes stale non-manual ones)
+                        await processTransactionForExpenses(existing.id, expenseRules);
                     }
                     result.updated++;
                 } else {
                     // Insert new transaction, matching it to a flatmate/landlord up front
-                    const match = matchTransaction(
+                    const { userMatch, landlordMatch } = matchEither(
                         matchCtx,
                         mapped.amount,
                         mapped.description,
@@ -187,24 +217,15 @@ async function doSyncTransactions(fullHistory: boolean): Promise<SyncResult> {
                         mapped.date,
                         mapped.cardSuffix
                     );
-                    const landlordMatch = match
-                        ? null
-                        : matchLandlordTransaction(
-                              matchCtx,
-                              mapped.amount,
-                              mapped.description,
-                              mapped.rawData,
-                              mapped.cardSuffix
-                          );
 
                     const [inserted] = await db
                         .insert(transactions)
                         .values({
                             ...mapped,
-                            matchedUserId: match?.userId ?? null,
+                            matchedUserId: userMatch?.userId ?? null,
                             matchedLandlordId: landlordMatch?.landlordId ?? null,
-                            matchType: match?.matchType ?? landlordMatch?.matchType ?? null,
-                            matchConfidence: match?.confidence ?? landlordMatch?.confidence ?? null,
+                            matchType: userMatch?.matchType ?? landlordMatch?.matchType ?? null,
+                            matchConfidence: userMatch?.confidence ?? landlordMatch?.confidence ?? null,
                         })
                         .returning({ id: transactions.id });
                     result.inserted++;
@@ -217,16 +238,26 @@ async function doSyncTransactions(fullHistory: boolean): Promise<SyncResult> {
             }
         }
 
+        // Rent paid in instalments only becomes recognizable once all of a
+        // week's payments are in the ledger — reconcile after every sync.
+        if (result.inserted > 0 || result.updated > 0) {
+            await reconcileSplitRentPayments(matchCtx);
+        }
+
         console.log("[Sync] Result:", result);
 
-        // Update sync state
-        await db
-            .insert(systemState)
-            .values({ key: SYNC_STATE_KEY, value: new Date().toISOString() })
-            .onConflictDoUpdate({
-                target: systemState.key,
-                set: { value: new Date().toISOString(), updatedAt: new Date() },
-            });
+        // Advance the sync watermark only on a clean run. The fetch window is
+        // derived from this timestamp, so a run with failed rows must not move
+        // it forward — the next sync re-fetches and heals the gap.
+        if (result.errors.length === 0) {
+            await db
+                .insert(systemState)
+                .values({ key: SYNC_STATE_KEY, value: new Date().toISOString() })
+                .onConflictDoUpdate({
+                    target: systemState.key,
+                    set: { value: new Date().toISOString(), updatedAt: new Date() },
+                });
+        }
 
     } catch (error) {
         console.error("[Sync] Error:", error);

@@ -310,6 +310,15 @@ export async function manuallyMatchExpense(
         return true;
     }
 
+    // Expense totals sum absolute amounts, so categorizing an incoming credit
+    // would ADD it as spend instead of subtracting it — reject the mismatch
+    const [txRow] = await db
+        .select({ amount: transactions.amount })
+        .from(transactions)
+        .where(eq(transactions.id, transactionId))
+        .limit(1);
+    if (!txRow || txRow.amount >= 0) return false;
+
     // Verify category exists
     const [category] = await db
         .select()

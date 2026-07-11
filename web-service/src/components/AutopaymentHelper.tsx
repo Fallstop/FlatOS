@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { Calendar, CreditCard, CheckCircle, Copy, Check, ArrowDown } from "lucide-react";
-import { nextThursday, addWeeks, differenceInWeeks, isBefore, startOfDay, isAfter, addDays } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
-import { TIMEZONE } from "@/lib/constants";
+import { format, addWeeks, differenceInWeeks, isBefore, startOfDay, startOfWeek, addDays } from "date-fns";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
+import { TIMEZONE, WEEK_STARTS_ON } from "@/lib/constants";
 import { formatMoney } from "@/lib/utils";
 
 interface PaymentTransaction {
@@ -43,11 +43,19 @@ interface AutopaymentHelperProps {
     futureSchedules: ScheduleSegment[];
 }
 
-// Get the Thursday of a given week (for autopayment start dates)
-function getThursdayOfWeek(date: Date): Date {
-    const day = date.getDay();
-    const diff = (4 - day + 7) % 7; // 4 = Thursday
-    return addDays(startOfDay(date), diff);
+/**
+ * Due Thursday of the Sat–Fri billing week containing the given wall-clock
+ * date. "Next calendar Thursday" is wrong for schedule boundaries: a Friday
+ * end date would map to the FOLLOWING week's Thursday, telling the user to
+ * pay the old rate one week too long.
+ */
+function dueThursdayOfWeek(zonedDate: Date): Date {
+    return addDays(startOfWeek(startOfDay(zonedDate), { weekStartsOn: WEEK_STARTS_ON }), 5);
+}
+
+/** Wall-clock date in the flat's timezone for an instant. */
+function inFlatTz(date: Date): Date {
+    return toZonedTime(date, TIMEZONE);
 }
 
 export function AutopaymentHelper({ 
@@ -83,161 +91,146 @@ export function AutopaymentHelper({
         setTimeout(() => setCopiedStep(null), 2000);
     };
 
-    // Calculate the autopayment steps accounting for all schedule changes
+    // Calculate the autopayment steps accounting for all schedule changes.
+    // All date math happens on the flat's wall-clock calendar so a browser in
+    // another timezone can't shift payment days.
     const calculateAutopaymentSteps = (): AutopaymentStep[] => {
         const steps: AutopaymentStep[] = [];
-        const now = new Date();
-        
-        // Get the next Thursday as the starting point for autopayments
-        let paymentStartDate = nextThursday(now);
-        // If today is Thursday, use today
-        if (now.getDay() === 4) {
-            paymentStartDate = startOfDay(now);
+        const zonedNow = inFlatTz(new Date());
+
+        // First settable payment: this week's due Thursday, or next week's if
+        // it has already passed
+        let firstThursday = dueThursdayOfWeek(zonedNow);
+        if (isBefore(firstThursday, startOfDay(zonedNow))) {
+            firstThursday = addWeeks(firstThursday, 1);
         }
 
         const isAhead = totalBalance >= 0.01;
         const isBehind = totalBalance <= -0.01;
         const amountOwed = Math.abs(totalBalance);
-        
-        let stepNumber = 1;
-        let currentStart = paymentStartDate;
 
-        // Handle catchup/balance adjustment first
-        if (isBehind || isAhead) {
-            if (spreadCatchup) {
-                // 8-week spread catchup mode
-                const correctionWeeks = 8;
-                const weeklyAdjustment = totalBalance / correctionWeeks;
-                const adjustedPayment = currentWeeklyRate - weeklyAdjustment;
-                const catchupAmount = Math.max(0, adjustedPayment);
-                const catchupEndDate = addWeeks(currentStart, correctionWeeks - 1);
-                
+        // Build due-Thursday-aligned rate segments. Overlapping schedules
+        // follow the balance engine's rule: a later-starting schedule
+        // supersedes the earlier one from its start week.
+        const segments: { amount: number; start: Date; end: Date }[] = [];
+        if (futureSchedules.length === 0) {
+            segments.push({
+                amount: currentWeeklyRate,
+                start: firstThursday,
+                end: addWeeks(firstThursday, 52), // Default 1 year for display
+            });
+        } else {
+            const sorted = [...futureSchedules].sort(
+                (a, b) => a.startDate.getTime() - b.startDate.getTime()
+            );
+            for (let i = 0; i < sorted.length; i++) {
+                const schedule = sorted[i];
+                const start = dueThursdayOfWeek(inFlatTz(schedule.startDate));
+                let end = schedule.endDate
+                    ? dueThursdayOfWeek(inFlatTz(schedule.endDate))
+                    : null;
+
+                const next = sorted[i + 1];
+                if (next) {
+                    const lastBeforeNext = addWeeks(dueThursdayOfWeek(inFlatTz(next.startDate)), -1);
+                    end = end === null || isBefore(lastBeforeNext, end) ? lastBeforeNext : end;
+                }
+                if (end === null) {
+                    const displayFrom = isBefore(start, firstThursday) ? firstThursday : start;
+                    end = addWeeks(displayFrom, 52); // Ongoing = 1 year for display
+                }
+
+                if (isBefore(end, firstThursday) || isBefore(end, start)) continue;
+                segments.push({ amount: schedule.weeklyAmount, start, end });
+            }
+        }
+
+        let stepNumber = 1;
+        let cursor = firstThursday;
+        // 8-week spread: the extra (or credit) per week, applied on top of
+        // whatever the scheduled rate is for each of those weeks
+        let correctionWeeksLeft = spreadCatchup && (isBehind || isAhead) ? 8 : 0;
+        const weeklyAdjustment = totalBalance / 8;
+
+        if (!spreadCatchup && isBehind) {
+            // Immediate mode: clear the arrears with a one-time payment; the
+            // normal weekly payments still start this Thursday (the current
+            // week's rent is not part of the arrears)
+            steps.push({
+                stepNumber: stepNumber++,
+                amount: amountOwed,
+                startDate: cursor,
+                endDate: cursor,
+                weeksCount: 1,
+                description: "One-time payment to clear balance",
+                isOneTime: true,
+            });
+        }
+
+        for (const segment of segments) {
+            if (isBefore(segment.end, cursor)) continue;
+            if (isBefore(cursor, segment.start)) {
+                cursor = segment.start;
+            }
+
+            // Part 1: weeks of this segment inside the catch-up window, at the
+            // segment's own rate plus the adjustment
+            if (correctionWeeksLeft > 0) {
+                const weeksAvailable = differenceInWeeks(segment.end, cursor) + 1;
+                const correctionWeeks = Math.min(correctionWeeksLeft, weeksAvailable);
+                const correctionEnd = addWeeks(cursor, correctionWeeks - 1);
                 steps.push({
                     stepNumber: stepNumber++,
-                    amount: catchupAmount,
-                    startDate: currentStart,
-                    endDate: catchupEndDate,
+                    amount: Math.max(0, segment.amount - weeklyAdjustment),
+                    startDate: cursor,
+                    endDate: correctionEnd,
                     weeksCount: correctionWeeks,
                     description: isBehind
                         ? `Catchup payment (+$${formatMoney(weeklyAdjustment)}/week extra)`
                         : `Reduced payment (using $${formatMoney(weeklyAdjustment)}/week credit)`,
                 });
-                
-                currentStart = addWeeks(currentStart, correctionWeeks);
-            } else if (isBehind) {
-                // Immediate payment mode - one-time payment to clear balance
-                steps.push({
-                    stepNumber: stepNumber++,
-                    amount: amountOwed,
-                    startDate: currentStart,
-                    endDate: currentStart,
-                    weeksCount: 1,
-                    description: "One-time payment to clear balance",
-                    isOneTime: true,
-                });
-                
-                currentStart = addWeeks(currentStart, 1);
+                correctionWeeksLeft -= correctionWeeks;
+                cursor = addWeeks(cursor, correctionWeeks);
+                if (isBefore(segment.end, cursor)) continue;
             }
-            // If ahead and not spreading, we just continue with normal payments (credit applies automatically)
-        }
 
-        // Now add steps for each schedule segment from currentStart onwards
-        // Build a list of schedule periods to iterate through
-        const scheduleSegments: { amount: number; start: Date; end: Date }[] = [];
-        
-        if (futureSchedules.length === 0) {
-            // No schedules defined, show ongoing payment
-            scheduleSegments.push({
-                amount: currentWeeklyRate,
-                start: currentStart,
-                end: addWeeks(currentStart, 52), // Default 1 year
-            });
-        } else {
-            // Process each schedule segment
-            for (let i = 0; i < futureSchedules.length; i++) {
-                const schedule = futureSchedules[i];
-                const scheduleStart = startOfDay(schedule.startDate);
-                const scheduleEnd = schedule.endDate ? startOfDay(schedule.endDate) : null;
-                
-                // Skip schedules that end before our current start
-                if (scheduleEnd && isBefore(scheduleEnd, currentStart)) {
-                    continue;
-                }
-                
-                // Determine the effective start for this segment
-                const effectiveStart = isAfter(scheduleStart, currentStart) 
-                    ? getThursdayOfWeek(scheduleStart)
-                    : currentStart;
-                
-                // Determine the effective end for this segment
-                const effectiveEnd = scheduleEnd 
-                    ? getThursdayOfWeek(scheduleEnd)
-                    : addWeeks(effectiveStart, 52); // Default ongoing = 1 year for display
-                
-                // Skip if this segment would start after its end
-                if (isAfter(effectiveStart, effectiveEnd)) {
-                    continue;
-                }
-                
-                scheduleSegments.push({
-                    amount: schedule.weeklyAmount,
-                    start: effectiveStart,
-                    end: effectiveEnd,
-                });
-            }
-        }
+            // Part 2: the rest of the segment at its normal rate
+            const weeksCount = Math.max(1, differenceInWeeks(segment.end, cursor) + 1);
 
-        // Merge consecutive segments with the same amount and adjust for currentStart
-        for (const segment of scheduleSegments) {
-            // Skip if this segment ends before our current working date
-            if (isBefore(segment.end, currentStart)) {
-                continue;
-            }
-            
-            // Adjust start if it's before our current working date
-            const adjustedStart = isAfter(segment.start, currentStart) ? segment.start : currentStart;
-            
-            // Skip if no time between start and end
-            if (isAfter(adjustedStart, segment.end)) {
-                continue;
-            }
-            
-            const weeksCount = Math.max(1, differenceInWeeks(segment.end, adjustedStart) + 1);
-            
-            // Check if we can merge with the previous step (same amount and consecutive)
+            // Merge with the previous step when the amount and cadence line up
             const lastStep = steps[steps.length - 1];
-            if (lastStep && 
-                !lastStep.isOneTime && 
+            if (
+                lastStep &&
+                !lastStep.isOneTime &&
                 Math.abs(lastStep.amount - segment.amount) <= 0.01 &&
-                differenceInWeeks(adjustedStart, lastStep.endDate) <= 1) {
-                // Merge by extending the previous step
+                differenceInWeeks(cursor, lastStep.endDate) <= 1
+            ) {
                 lastStep.endDate = segment.end;
                 lastStep.weeksCount = differenceInWeeks(segment.end, lastStep.startDate) + 1;
             } else {
-                // Add new step
-                const isOngoing = !futureSchedules.some(s => s.endDate !== null);
-                const hasNextSchedule = scheduleSegments.indexOf(segment) < scheduleSegments.length - 1;
-                
+                const isOngoing = !futureSchedules.some((s) => s.endDate !== null);
+                const isLastSegment = segments.indexOf(segment) === segments.length - 1;
+
                 let description = "";
                 if (segment.amount !== currentWeeklyRate) {
                     description = `Weekly payment at $${formatMoney(segment.amount)}/week`;
-                } else if (isOngoing && !hasNextSchedule) {
+                } else if (isOngoing && isLastSegment) {
                     description = "Standard weekly payment (ongoing)";
                 } else {
-                    description = `Standard weekly payment until ${formatInTimeZone(segment.end, TIMEZONE, "d MMM")}`;
+                    description = `Standard weekly payment until ${format(segment.end, "d MMM")}`;
                 }
-                
+
                 steps.push({
                     stepNumber: stepNumber++,
                     amount: segment.amount,
-                    startDate: adjustedStart,
+                    startDate: cursor,
                     endDate: segment.end,
                     weeksCount,
                     description,
                 });
             }
-            
-            currentStart = addWeeks(segment.end, 1);
+
+            cursor = addWeeks(segment.end, 1);
         }
 
         // Renumber steps
@@ -253,7 +246,8 @@ export function AutopaymentHelper({
     const isAhead = totalBalance >= 0.01;
     const isBehind = totalBalance <= -0.01;
 
-    const formatThursday = (date: Date) => formatInTimeZone(date, TIMEZONE, "EEE d MMM yyyy");
+    // Step dates are already flat-timezone wall-clock dates
+    const formatThursday = (date: Date) => format(date, "EEE d MMM yyyy");
 
     return (
         <div className="glass rounded-2xl overflow-hidden card-hover animate-fade-in">

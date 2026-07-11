@@ -169,7 +169,10 @@ export async function calculateAllCategoryBurnRates(): Promise<CategoryBurnRate[
         const totalSpent = categoryTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
         const oldestTx = categoryTxs[categoryTxs.length - 1];
         const newestTx = categoryTxs[0];
-        const daysCovered = Math.max(1, differenceInDays(newestTx.date, oldestTx.date));
+        // Coverage runs from the first transaction through TODAY. Dividing by
+        // the first-to-last span turns a single $180 bill into "$180/day"
+        // ($5,400/month) and systematically overstates every sparse category.
+        const daysCovered = Math.max(1, differenceInDays(new Date(), oldestTx.date));
 
         const dailyRate = totalSpent / daysCovered;
 
@@ -189,15 +192,23 @@ export async function calculateAllCategoryBurnRates(): Promise<CategoryBurnRate[
 }
 
 /**
- * Get all expense transactions with full details (for the expenses page)
+ * Get all expense transactions with full details (for the expenses page).
+ * All filters (date, category, active categories) apply BEFORE the limit —
+ * limiting first could return an empty list for a category that plainly has
+ * transactions in the period.
  */
 export async function getAllExpenseTransactions(
     limit?: number,
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    categoryId?: string
 ): Promise<ExpenseTransactionWithDetails[]> {
     const categories = await db.select().from(expenseCategories);
-    const categoryMap = new Map(categories.map(c => [c.id, c]));
+    // Summaries, cards, and charts all exclude inactive categories — the
+    // transaction list must agree with them
+    const categoryMap = new Map(
+        categories.filter((c) => c.isActive).map((c) => [c.id, c])
+    );
 
     const query = db
         .select({
@@ -209,6 +220,10 @@ export async function getAllExpenseTransactions(
         .orderBy(desc(transactions.date));
 
     let results = await query;
+
+    if (categoryId) {
+        results = results.filter(r => r.expenseTransaction.categoryId === categoryId);
+    }
 
     // Filter by date (convert to timestamps for reliable comparison)
     if (startDate || endDate) {
@@ -222,12 +237,7 @@ export async function getAllExpenseTransactions(
         });
     }
 
-    // Apply limit
-    if (limit) {
-        results = results.slice(0, limit);
-    }
-
-    return results
+    const detailed = results
         .map(r => {
             const category = categoryMap.get(r.expenseTransaction.categoryId);
             if (!category) return null;
@@ -238,6 +248,8 @@ export async function getAllExpenseTransactions(
             };
         })
         .filter((r): r is ExpenseTransactionWithDetails => r !== null);
+
+    return limit ? detailed.slice(0, limit) : detailed;
 }
 
 /**

@@ -1,7 +1,9 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { calculateAllBalances } from "@/lib/calculations";
+import { getBalanceAudit } from "@/lib/audit";
 import { AdminBalancesView } from "./AdminBalancesView";
+import { BalanceAuditPanel } from "@/components/BalanceAuditPanel";
 import { PaymentSummaryStats, NoPaymentData } from "@/components/PaymentSummaryStats";
 
 export default async function BalancesPage() {
@@ -12,7 +14,7 @@ export default async function BalancesPage() {
     }
 
     // Everyone sees all flatmates for transparency
-    const summary = await calculateAllBalances();
+    const [summary, audit] = await Promise.all([calculateAllBalances(), getBalanceAudit()]);
 
     if (summary.flatmates.length === 0) {
         return <NoPaymentData />;
@@ -33,6 +35,9 @@ export default async function BalancesPage() {
                 totalPaid={summary.totalPaid}
                 totalBalance={summary.totalBalance}
             />
+
+            {/* Verifiability: sync health, unmatched deposits, data gaps */}
+            <BalanceAuditPanel audit={audit} />
 
             {/* Balances View with Chart and Weekly History */}
             <AdminBalancesView

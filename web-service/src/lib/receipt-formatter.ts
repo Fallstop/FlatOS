@@ -1,6 +1,6 @@
 import { formatInTimeZone } from "date-fns-tz";
 import { getWeekStart, getWeekEnd, TIMEZONE } from "./constants";
-import { derivePaymentStatus } from "./utils";
+import { getWeekPaymentStatus, type WeekPaymentStatus } from "./utils";
 
 // Receipts must show dates on the flat's calendar regardless of server timezone
 const fmt = (date: Date, pattern: string) => formatInTimeZone(date, TIMEZONE, pattern);
@@ -10,16 +10,18 @@ interface WeekSummaryEntry {
     userName: string | null;
     amountDue: number;
     amountPaid: number;
-    status: "paid" | "partial" | "unpaid" | "overpaid";
+    status: WeekPaymentStatus;
 }
 
 interface WeekFlatmateEntry {
+    userId?: string;
     userName: string | null;
     amountDue: number;
     amountPaid: number;
 }
 
 export interface AllTimeBalanceEntry {
+    userId?: string;
     userName: string | null;
     totalDue: number;
     totalPaid: number;
@@ -32,6 +34,7 @@ function formatStatusText(status: string, paid: number, due: number): string {
         case "overpaid": return `OVERPAID (+$${(paid - due).toFixed(2)})`;
         case "partial": return `PARTIAL (-$${(due - paid).toFixed(2)})`;
         case "unpaid": return "UNPAID";
+        case "in-progress": return "DUE THURSDAY";
         default: return status.toUpperCase();
     }
 }
@@ -46,7 +49,13 @@ function formatBalanceAmount(amount: number): string {
 function formatReceiptBody(
     weekStart: Date,
     weekEnd: Date,
-    entries: Array<{ userName: string | null; amountDue: number; amountPaid: number; status: string }>,
+    entries: Array<{
+        userId?: string;
+        userName: string | null;
+        amountDue: number;
+        amountPaid: number;
+        status: string;
+    }>,
     allTimeBalances?: AllTimeBalanceEntry[],
 ): string {
     const W = 48;
@@ -59,11 +68,12 @@ function formatReceiptBody(
         return label + " ".repeat(gap) + value;
     };
 
-    // Build a lookup for all-time balances by name
-    const balanceByName = new Map<string, AllTimeBalanceEntry>();
+    // Look up all-time balances by userId — display names can be missing or
+    // duplicated, which would print one flatmate's balance under another.
+    const balanceByUserId = new Map<string, AllTimeBalanceEntry>();
     if (allTimeBalances) {
         for (const b of allTimeBalances) {
-            balanceByName.set(b.userName || "Unknown", b);
+            if (b.userId) balanceByUserId.set(b.userId, b);
         }
     }
 
@@ -80,7 +90,7 @@ function formatReceiptBody(
 
     for (const entry of entries) {
         const name = entry.userName || "Unknown";
-        const allTime = balanceByName.get(name);
+        const allTime = entry.userId ? balanceByUserId.get(entry.userId) : undefined;
         const hasWeekActivity = entry.amountDue > 0 || entry.amountPaid > 0;
         const hasAllTimeActivity = allTime && (allTime.totalDue > 0 || allTime.totalPaid > 0);
 
@@ -148,10 +158,15 @@ export function formatWeekViewReceipt(
     weekEnd: Date,
     flatmates: WeekFlatmateEntry[],
     allTimeBalances?: AllTimeBalanceEntry[],
+    isInProgress = false,
 ): string {
     const entries = flatmates.map((f) => ({
         ...f,
-        status: derivePaymentStatus(f.amountPaid, f.amountDue),
+        status: getWeekPaymentStatus({
+            amountPaid: f.amountPaid,
+            amountDue: f.amountDue,
+            isInProgress,
+        }),
     }));
     return formatReceiptBody(weekStart, weekEnd, entries, allTimeBalances);
 }

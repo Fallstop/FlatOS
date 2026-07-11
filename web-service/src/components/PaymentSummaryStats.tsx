@@ -14,6 +14,10 @@ export function PaymentSummaryStats({
     totalPaid: number;
     totalBalance: number;
 }) {
+    // Round to cents BEFORE choosing the sign, so float residue from summing
+    // per-flatmate balances can't render a red "-$0.00" over settled books.
+    const balanceCents = Math.round(totalBalance * 100);
+    const balanceDisplay = balanceCents / 100;
     return (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             <div className="glass rounded-xl p-4">
@@ -40,8 +44,8 @@ export function PaymentSummaryStats({
             </div>
             <div className="glass rounded-xl p-4">
                 <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${totalBalance >= 0 ? "bg-emerald-500/20" : "bg-rose-500/20"}`}>
-                        {totalBalance >= 0 ? (
+                    <div className={`p-2 rounded-lg ${balanceCents >= 0 ? "bg-emerald-500/20" : "bg-rose-500/20"}`}>
+                        {balanceCents >= 0 ? (
                             <TrendingUp className="w-5 h-5 text-emerald-400" />
                         ) : (
                             <TrendingDown className="w-5 h-5 text-rose-400" />
@@ -49,8 +53,8 @@ export function PaymentSummaryStats({
                     </div>
                     <div>
                         <p className="text-sm text-slate-400">Net Balance</p>
-                        <p className={`text-xl font-bold ${totalBalance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            {totalBalance >= 0 ? "+" : "-"}${formatMoney(totalBalance)}
+                        <p className={`text-xl font-bold ${balanceCents >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {balanceCents >= 0 ? "+" : "-"}${formatMoney(balanceDisplay)}
                         </p>
                     </div>
                 </div>

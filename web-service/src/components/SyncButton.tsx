@@ -23,13 +23,20 @@ export function SyncButton({ isAdmin, lastSyncTime, canRefresh, nextRefreshAt }:
             const res = await syncTransactionsAction();
             if ("error" in res) {
                 setResult({ success: false, message: res.error as string });
+            } else if (res.errors.length > 0) {
+                // A failed Akahu fetch or failed rows also land here — showing
+                // the green "Synced" toast for that hides real outages.
+                setResult({
+                    success: false,
+                    message: `Sync problem: ${res.errors[0]}${res.errors.length > 1 ? ` (+${res.errors.length - 1} more)` : ""}`,
+                });
             } else {
                 setResult({
                     success: true,
                     message: `Synced: ${res.inserted} new, ${res.updated} updated`,
                 });
             }
-            setTimeout(() => setResult(null), 3000);
+            setTimeout(() => setResult(null), 8000);
         });
     };
 

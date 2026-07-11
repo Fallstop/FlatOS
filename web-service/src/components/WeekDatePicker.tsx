@@ -37,6 +37,13 @@ function alignToWeekBoundary(date: Date, align: "start" | "end"): Date {
 
 function parseDate(dateStr: string | undefined): Date | undefined {
     if (!dateStr) return undefined;
+    // Parse yyyy-MM-dd as a LOCAL calendar date. new Date("yyyy-MM-dd") gives
+    // UTC midnight, which format() then renders as the previous day in any
+    // browser west of UTC — every open-and-save would shift the date back.
+    const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    if (dayOnly) {
+        return new Date(Number(dayOnly[1]), Number(dayOnly[2]) - 1, Number(dayOnly[3]));
+    }
     const parsed = new Date(dateStr);
     return isNaN(parsed.getTime()) ? undefined : parsed;
 }

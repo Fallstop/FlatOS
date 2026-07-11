@@ -4,7 +4,8 @@ import { useState } from "react";
 import { X, Trash2 } from "lucide-react";
 import { updateScheduleAction, deleteScheduleAction } from "@/lib/actions";
 import { PaymentSchedule } from "@/lib/db/schema";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { TIMEZONE } from "@/lib/constants";
 import { WeekDatePicker } from "@/components/WeekDatePicker";
 
 interface EditScheduleDialogProps {
@@ -100,7 +101,7 @@ export function EditScheduleDialog({ schedule, flatmates, onClose }: EditSchedul
                             label="Start Date"
                             weekAlign="start"
                             required
-                            defaultValue={format(schedule.startDate, "yyyy-MM-dd")}
+                            defaultValue={formatInTimeZone(schedule.startDate, TIMEZONE, "yyyy-MM-dd")}
                             placeholder="Select Saturday"
                         />
                         <div>
@@ -108,7 +109,7 @@ export function EditScheduleDialog({ schedule, flatmates, onClose }: EditSchedul
                                 name="endDate"
                                 label="End Date"
                                 weekAlign="end"
-                                defaultValue={schedule.endDate ? format(schedule.endDate, "yyyy-MM-dd") : undefined}
+                                defaultValue={schedule.endDate ? formatInTimeZone(schedule.endDate, TIMEZONE, "yyyy-MM-dd") : undefined}
                                 placeholder="Select Friday"
                             />
                             <p className="text-xs text-slate-500 mt-1">Leave empty for ongoing</p>

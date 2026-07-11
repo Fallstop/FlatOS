@@ -40,12 +40,14 @@ type ListItem =
     | { type: "week-header"; weekStart: Date }
     | { type: "analysis-boundary"; date: Date };
 
-function crossesWeekBoundary(date1: Date, date2: Date): Date | null {
-    const weekStart1 = getWeekStart(date1);
-    const weekStart2 = getWeekStart(date2);
-    
-    if (weekStart1.getTime() !== weekStart2.getTime()) {
-        return weekStart1.getTime() > weekStart2.getTime() ? weekStart1 : weekStart2;
+function crossesWeekBoundary(newerDate: Date, olderDate: Date): Date | null {
+    const newerWeek = getWeekStart(newerDate);
+    const olderWeek = getWeekStart(olderDate);
+
+    if (newerWeek.getTime() !== olderWeek.getTime()) {
+        // The list runs newest-first, so the divider sits above the OLDER
+        // week's rows and must be labeled with that week
+        return olderWeek;
     }
     return null;
 }

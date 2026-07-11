@@ -73,13 +73,15 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
     // Get burn rates for all categories
     const burnRates = await calculateAllCategoryBurnRates();
 
-    // Get expense transactions (higher limit for longer views)
+    // Get expense transactions (higher limit for longer views); the category
+    // filter applies inside, before the limit
     const transactionLimit = period === "month" ? 100 : period === "year" ? 500 : 1000;
-    const expenseTransactions = selectedCategory
-        ? await getAllExpenseTransactions(transactionLimit, startDate, endDate).then((txs) =>
-            txs.filter((tx) => tx.category.id === selectedCategory.id)
-        )
-        : await getAllExpenseTransactions(transactionLimit, startDate, endDate);
+    const expenseTransactions = await getAllExpenseTransactions(
+        transactionLimit,
+        startDate,
+        endDate,
+        selectedCategory?.id
+    );
 
     // Get rules for admin
     const rules = isAdmin

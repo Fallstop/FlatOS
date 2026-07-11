@@ -45,6 +45,7 @@ export async function GET(request: Request) {
         const balances = await calculateAllBalances();
 
         const allTimeBalances: AllTimeBalanceEntry[] = balances.flatmates.map((f) => ({
+            userId: f.userId,
             userName: f.userName,
             totalDue: f.totalDue,
             totalPaid: f.totalPaid,

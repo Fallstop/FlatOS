@@ -1,7 +1,13 @@
 import { db } from "./db";
 import { transactions, users, paymentSchedules, landlords } from "./db/schema";
-import { eq, isNull, isNotNull, or } from "drizzle-orm";
+import { eq, isNull, isNotNull, or, and, sql } from "drizzle-orm";
+import { addDays } from "date-fns";
 import type { User, Landlord, PaymentSchedule } from "./db/schema";
+import { getActiveSchedule, getWeeklyAmount } from "./schedule-utils";
+import { getWeekStart, PAID_THRESHOLD } from "./constants";
+
+// A payment at least this fraction of the weekly rate is treated as rent.
+const RENT_THRESHOLD_RATIO = 0.6;
 
 export interface MatchResult {
     userId: string;
@@ -99,6 +105,30 @@ function buildSearchFields(description: string, parsed: ParsedTransactionData): 
 }
 
 /**
+ * Of all flatmates whose pattern appears in the search text, pick the one
+ * with the LONGEST pattern. First-substring-hit-wins would let "Sam" steal
+ * every one of Samantha's payments depending on row order.
+ */
+function findBestPatternMatch(
+    flatmates: User[],
+    getPattern: (f: User) => string | null,
+    searchFields: string
+): User | null {
+    let best: User | null = null;
+    let bestLength = 0;
+    for (const flatmate of flatmates) {
+        const raw = getPattern(flatmate);
+        if (!raw) continue;
+        const pattern = raw.toLowerCase();
+        if (pattern.length > bestLength && searchFields.includes(pattern)) {
+            best = flatmate;
+            bestLength = pattern.length;
+        }
+    }
+    return best;
+}
+
+/**
  * Match a transaction to a flatmate based on:
  * 1. Card suffix (for expense card purchases)
  * 2. Bank account pattern in transaction description/particulars
@@ -136,66 +166,46 @@ export function matchTransaction(
 
     // For incoming payments (positive amounts), match by bank account or name
     if (amount > 0) {
-        // Try to match by bank account pattern
-        for (const flatmate of ctx.flatmates) {
-            if (flatmate.bankAccountPattern) {
-                const pattern = flatmate.bankAccountPattern.toLowerCase();
-                if (searchFields.includes(pattern)) {
-                    const matchType = determineMatchType(ctx, flatmate.id, amount, date);
-                    return {
-                        userId: flatmate.id,
-                        matchType: matchType.type,
-                        confidence: matchType.confidence,
-                    };
-                }
-            }
+        const byAccount = findBestPatternMatch(ctx.flatmates, (f) => f.bankAccountPattern, searchFields);
+        if (byAccount) {
+            const matchType = determineMatchType(ctx, byAccount.id, amount, date);
+            return {
+                userId: byAccount.id,
+                matchType: matchType.type,
+                confidence: matchType.confidence,
+            };
         }
 
-        // Try to match by matching name pattern
-        for (const flatmate of ctx.flatmates) {
-            if (flatmate.matchingName) {
-                const pattern = flatmate.matchingName.toLowerCase();
-                if (searchFields.includes(pattern)) {
-                    const matchType = determineMatchType(ctx, flatmate.id, amount, date);
-                    return {
-                        userId: flatmate.id,
-                        matchType: matchType.type,
-                        confidence: matchType.confidence * 0.9, // Slightly lower confidence for name matching
-                    };
-                }
-            }
+        const byName = findBestPatternMatch(ctx.flatmates, (f) => f.matchingName, searchFields);
+        if (byName) {
+            const matchType = determineMatchType(ctx, byName.id, amount, date);
+            return {
+                userId: byName.id,
+                matchType: matchType.type,
+                confidence: matchType.confidence * 0.9, // Slightly lower confidence for name matching
+            };
         }
     }
 
     // For outgoing non-card payments (amount < 0, no card suffix), also try to match flatmate
     // This catches bank transfers out that belong to a flatmate but don't count towards rent
     if (amount < 0 && !txCardSuffix) {
-        // Try to match by bank account pattern
-        for (const flatmate of ctx.flatmates) {
-            if (flatmate.bankAccountPattern) {
-                const pattern = flatmate.bankAccountPattern.toLowerCase();
-                if (searchFields.includes(pattern)) {
-                    return {
-                        userId: flatmate.id,
-                        matchType: "other", // Outgoing transfers don't count towards rent
-                        confidence: 0.9,
-                    };
-                }
-            }
+        const byAccount = findBestPatternMatch(ctx.flatmates, (f) => f.bankAccountPattern, searchFields);
+        if (byAccount) {
+            return {
+                userId: byAccount.id,
+                matchType: "other", // Outgoing transfers don't count towards rent
+                confidence: 0.9,
+            };
         }
 
-        // Try to match by matching name pattern
-        for (const flatmate of ctx.flatmates) {
-            if (flatmate.matchingName) {
-                const pattern = flatmate.matchingName.toLowerCase();
-                if (searchFields.includes(pattern)) {
-                    return {
-                        userId: flatmate.id,
-                        matchType: "other", // Outgoing transfers don't count towards rent
-                        confidence: 0.8, // Lower confidence for name matching
-                    };
-                }
-            }
+        const byName = findBestPatternMatch(ctx.flatmates, (f) => f.matchingName, searchFields);
+        if (byName) {
+            return {
+                userId: byName.id,
+                matchType: "other", // Outgoing transfers don't count towards rent
+                confidence: 0.8, // Lower confidence for name matching
+            };
         }
     }
 
@@ -274,26 +284,55 @@ function determineMatchType(
     amount: number,
     date: Date
 ): { type: "rent_payment" | "grocery_reimbursement" | "other"; confidence: number } {
-    // Find the schedule covering this date. When schedules overlap, use the one
-    // with the latest start date — same rule the balance calculations apply.
-    const applicable = (ctx.schedulesByUser.get(userId) ?? [])
-        .filter((s) => s.startDate <= date && (!s.endDate || s.endDate >= date))
-        .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+    // Resolve the schedule the same way the balance calculations do (shared
+    // helper, day-granularity in the flat's timezone) — raw-instant comparison
+    // here previously misclassified rent paid on a schedule's first or last
+    // day. Rent paid up to a week early (before the schedule starts) or a week
+    // late (after it ends) is still rent.
+    const schedules = ctx.schedulesByUser.get(userId) ?? [];
+    const active =
+        getActiveSchedule(schedules, date) ??
+        getActiveSchedule(schedules, addDays(date, 7)) ??
+        getActiveSchedule(schedules, addDays(date, -7));
 
-    if (applicable.length === 0) {
+    if (!active) {
         // No schedule - can't determine type precisely
         return { type: "other", confidence: 0.7 };
     }
 
-    const expectedWeekly = applicable[0].weeklyAmount;
+    const expectedWeekly = active.weeklyAmount;
 
     // Any payment >= 60% of the weekly rent is considered a rent payment
-    if (amount >= expectedWeekly * 0.6) {
+    if (amount >= expectedWeekly * RENT_THRESHOLD_RATIO) {
         return { type: "rent_payment", confidence: 0.9 };
     }
 
     // Smaller amounts are more likely grocery reimbursements
     return { type: "grocery_reimbursement", confidence: 0.7 };
+}
+
+/**
+ * Run both matchers in the right priority order. Landlord matching only ever
+ * fires for outgoing non-card payments, where a landlord pattern (e.g.
+ * "samson trust") must beat the loose flatmate "other" fallback — otherwise
+ * the weekly rent payout can be swallowed by a flatmate name substring.
+ */
+export function matchEither(
+    ctx: MatchContext,
+    amount: number,
+    description: string,
+    rawData: string,
+    date: Date,
+    cardSuffix?: string | null
+): { userMatch: MatchResult | null; landlordMatch: LandlordMatchResult | null } {
+    const landlordMatch = matchLandlordTransaction(ctx, amount, description, rawData, cardSuffix);
+    if (landlordMatch) {
+        return { userMatch: null, landlordMatch };
+    }
+    return {
+        userMatch: matchTransaction(ctx, amount, description, rawData, date, cardSuffix),
+        landlordMatch: null,
+    };
 }
 
 /**
@@ -317,8 +356,7 @@ export async function rematchAllTransactions(): Promise<{ matched: number; total
     let landlordMatched = 0;
 
     for (const tx of unmatchedTxs) {
-        // First try to match to a flatmate
-        const match = matchTransaction(
+        const { userMatch, landlordMatch } = matchEither(
             ctx,
             tx.amount,
             tx.description,
@@ -327,42 +365,111 @@ export async function rematchAllTransactions(): Promise<{ matched: number; total
             tx.cardSuffix
         );
 
-        if (match) {
+        if (userMatch || landlordMatch) {
             await db
                 .update(transactions)
                 .set({
-                    matchedUserId: match.userId,
-                    matchedLandlordId: null,
-                    matchType: match.matchType,
-                    matchConfidence: match.confidence,
+                    matchedUserId: userMatch?.userId ?? null,
+                    matchedLandlordId: landlordMatch?.landlordId ?? null,
+                    matchType: userMatch?.matchType ?? landlordMatch?.matchType ?? null,
+                    matchConfidence: userMatch?.confidence ?? landlordMatch?.confidence ?? null,
                 })
                 .where(eq(transactions.id, tx.id));
-            matched++;
-        } else {
-            // If no flatmate match, try to match to a landlord (for outgoing payments)
-            const landlordMatch = matchLandlordTransaction(
-                ctx,
-                tx.amount,
-                tx.description,
-                tx.rawData,
-                tx.cardSuffix
-            );
-
-            if (landlordMatch) {
-                await db
-                    .update(transactions)
-                    .set({
-                        matchedUserId: null,
-                        matchedLandlordId: landlordMatch.landlordId,
-                        matchType: landlordMatch.matchType,
-                        matchConfidence: landlordMatch.confidence,
-                    })
-                    .where(eq(transactions.id, tx.id));
-                landlordMatched++;
-            }
+            if (userMatch) matched++;
+            else landlordMatched++;
+        } else if (tx.matchedUserId || tx.matchedLandlordId || tx.matchType) {
+            // Neither matcher fires any more (e.g. the admin fixed a bad
+            // pattern): clear the stale match instead of leaving the old,
+            // now-wrong attribution in every balance.
+            await db
+                .update(transactions)
+                .set({
+                    matchedUserId: null,
+                    matchedLandlordId: null,
+                    matchType: null,
+                    matchConfidence: null,
+                })
+                .where(eq(transactions.id, tx.id));
         }
     }
 
+    await reconcileSplitRentPayments(ctx);
+
     return { matched, total: unmatchedTxs.length, landlordMatched };
+}
+
+/**
+ * Second-pass classification for rent paid in instalments.
+ *
+ * The per-transaction 60% threshold cannot see that two $115 transfers in the
+ * same week add up to the $230 rent — each one alone looks like a grocery
+ * reimbursement, and the money silently vanishes from the rent ledger. This
+ * pass groups a user's incoming payments by flat week and, when the rent for
+ * that week is NOT already covered but the combined payments reach the rent
+ * threshold, upgrades the small payments to rent_payment (oldest first) until
+ * the week is covered. Weeks whose rent is already paid are left alone so
+ * genuine reimbursements stay classified as such. Manual matches are never
+ * touched. Idempotent — safe to run after every sync/rematch.
+ */
+export async function reconcileSplitRentPayments(ctx: MatchContext): Promise<number> {
+    const rows = await db
+        .select({
+            id: transactions.id,
+            date: transactions.date,
+            amount: transactions.amount,
+            matchedUserId: transactions.matchedUserId,
+            matchType: transactions.matchType,
+            manualMatch: transactions.manualMatch,
+        })
+        .from(transactions)
+        .where(and(isNotNull(transactions.matchedUserId), sql`${transactions.amount} > 0`));
+
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) {
+        if (
+            row.matchType !== "rent_payment" &&
+            row.matchType !== "grocery_reimbursement" &&
+            row.matchType !== "other"
+        ) {
+            continue;
+        }
+        const key = `${row.matchedUserId}|${getWeekStart(row.date).toISOString()}`;
+        const group = groups.get(key);
+        if (group) group.push(row);
+        else groups.set(key, [row]);
+    }
+
+    let upgraded = 0;
+    for (const group of groups.values()) {
+        const userId = group[0].matchedUserId!;
+        const weekStart = getWeekStart(group[0].date);
+        const weekly = getWeeklyAmount(ctx.schedulesByUser.get(userId) ?? [], weekStart);
+        if (weekly <= 0) continue;
+
+        let rentSum = group
+            .filter((r) => r.matchType === "rent_payment")
+            .reduce((sum, r) => sum + r.amount, 0);
+        // Rent already covered: remaining small payments really are reimbursements
+        if (rentSum >= weekly * PAID_THRESHOLD) continue;
+
+        const candidates = group
+            .filter((r) => !r.manualMatch && r.matchType !== "rent_payment")
+            .sort((a, b) => a.date.getTime() - b.date.getTime());
+        const candidateSum = candidates.reduce((sum, r) => sum + r.amount, 0);
+        // Combined payments still don't look like rent: leave them alone
+        if (rentSum + candidateSum < weekly * RENT_THRESHOLD_RATIO) continue;
+
+        for (const candidate of candidates) {
+            if (rentSum >= weekly) break;
+            await db
+                .update(transactions)
+                .set({ matchType: "rent_payment", matchConfidence: 0.75 })
+                .where(eq(transactions.id, candidate.id));
+            rentSum += candidate.amount;
+            upgraded++;
+        }
+    }
+
+    return upgraded;
 }
 

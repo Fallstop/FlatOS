@@ -59,12 +59,18 @@ export function derivePaymentStatus(amountPaid: number, amountDue: number): Paym
 
 /**
  * Determine the payment status for a week based on amounts paid vs due.
+ * While a week is in progress (rent not yet due), missing money reads as
+ * "in-progress" rather than unpaid/partial — but money already paid still
+ * shows as paid so on-time payers get confirmation.
  */
 export function getWeekPaymentStatus(week: {
     amountPaid: number;
     amountDue: number;
     isInProgress?: boolean;
 }): WeekPaymentStatus {
-    if (week.isInProgress) return "in-progress";
-    return derivePaymentStatus(week.amountPaid, week.amountDue);
+    const status = derivePaymentStatus(week.amountPaid, week.amountDue);
+    if (week.isInProgress && (status === "unpaid" || status === "partial")) {
+        return "in-progress";
+    }
+    return status;
 }

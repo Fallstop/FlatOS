@@ -3,8 +3,6 @@ import { transactions, paymentSchedules, users, systemState, landlords } from ".
 import { eq, and, gte, lte, sql, isNotNull } from "drizzle-orm";
 import {
     eachWeekOfInterval,
-    startOfWeek,
-    startOfDay,
     endOfWeek,
     endOfDay,
     addDays,
@@ -12,7 +10,8 @@ import {
 } from "date-fns";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { WEEK_STARTS_ON, TIMEZONE, getWeekStart, getWeekEnd } from "./constants";
-import { derivePaymentStatus, type PaymentStatus } from "./utils";
+import { getActiveSchedule, getWeeklyAmount, dayKeyInTz } from "./schedule-utils";
+import { getWeekPaymentStatus, type WeekPaymentStatus } from "./utils";
 
 /**
  * Get the configured analysis start date from system settings.
@@ -117,42 +116,6 @@ interface AccountTransaction {
 function getDueThursday(zonedWeekStart: Date): Date {
     // Week starts on Saturday, so Thursday is 5 days later
     return fromZonedTime(endOfDay(addDays(zonedWeekStart, 5)), TIMEZONE);
-}
-
-/**
- * Calculate the amount due for a specific week based on payment schedules.
- * Handles overlapping schedules by taking the most recent one.
- */
-export function getWeeklyAmount(
-    schedules: Array<{ startDate: Date; endDate: Date | null; weeklyAmount: number }>,
-    weekStart: Date
-): number {
-    const active = getActiveSchedule(schedules, weekStart);
-    return active ? active.weeklyAmount : 0;
-}
-
-/**
- * Find the schedule that applies on a given date.
- * When schedules overlap, the one with the latest start date wins
- * (most specific for this period).
- */
-function getActiveSchedule<T extends { startDate: Date; endDate: Date | null }>(
-    schedules: T[],
-    date: Date
-): T | null {
-    const day = startOfDay(date);
-
-    let best: T | null = null;
-    for (const s of schedules) {
-        const scheduleStartDay = startOfDay(s.startDate);
-        const scheduleEndDay = s.endDate ? startOfDay(s.endDate) : new Date(2100, 0, 1);
-        if (scheduleStartDay <= day && scheduleEndDay >= day) {
-            if (!best || s.startDate.getTime() > best.startDate.getTime()) {
-                best = s;
-            }
-        }
-    }
-    return best;
 }
 
 /**
@@ -261,7 +224,7 @@ function calculateFlatmateBalance(
             continue;
         }
 
-        const amountDue = getWeeklyAmount(schedules, zonedWeekStart);
+        const amountDue = getWeeklyAmount(schedules, weekStart);
 
         // Find ALL transactions in this week's payment window (for user's payment display)
         const allWeekTransactions = allUserTransactions.filter(
@@ -283,7 +246,13 @@ function calculateFlatmateBalance(
         const amountPaid = weekRentPayments.reduce((sum, tx) => sum + tx.amount, 0);
         const balance = amountPaid - amountDue;
 
-        totalDue += amountDue;
+        // The current week's rent isn't owed until Thursday night, so it must
+        // not drag the headline balance down from Saturday morning. Payments
+        // made early still count (being ahead mid-week is fine; being branded
+        // "behind" for money that isn't due yet is not).
+        if (!isInProgress) {
+            totalDue += amountDue;
+        }
 
         // Create a set of rent payment IDs for quick lookup
         const rentPaymentIdSet = new Set(weekRentPayments.map((tx) => tx.id));
@@ -342,10 +311,10 @@ function calculateFlatmateBalance(
         });
     }
 
-    // Add all schedules that start in the future
-    const nowDay = startOfDay(now);
+    // Add all schedules that start in the future (on the flat's calendar)
+    const nowDay = dayKeyInTz(now);
     const upcomingSchedules = schedules
-        .filter((s) => startOfDay(s.startDate) > nowDay)
+        .filter((s) => dayKeyInTz(s.startDate) > nowDay)
         .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
     for (const s of upcomingSchedules) {
@@ -370,10 +339,17 @@ function calculateFlatmateBalance(
     };
 }
 
-async function resolveStartDate(startDate?: Date): Promise<Date> {
+export async function resolveStartDate(startDate?: Date): Promise<Date> {
     const configuredStartDate = await getAnalysisStartDate();
     // Use provided start date, or configured analysis start date, or default to 6 months ago
-    return startDate ?? configuredStartDate ?? new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+    const resolved =
+        startDate ?? configuredStartDate ?? new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+    // Snap to the start of the containing flat week (Saturday 00:00 NZ).
+    // Week generation charges the full week containing the start date, so the
+    // transaction fetch must cover the same window — otherwise payments made
+    // between the week's start and the raw start instant silently vanish
+    // while the rent for them is still billed.
+    return getWeekStart(resolved);
 }
 
 /**
@@ -451,16 +427,19 @@ export async function getCurrentWeekSummary(): Promise<
         userName: string | null;
         amountDue: number;
         amountPaid: number;
-        status: PaymentStatus;
+        status: WeekPaymentStatus;
     }>
 > {
     const now = new Date();
     // Derive "this week" on the flat's calendar (a UTC server would otherwise
     // still be reporting the previous week for the first ~12 hours of every
     // NZ Saturday), with timezone-aware boundaries (Sat 00:00 to Fri 23:59:59).
-    const zonedWeekStart = startOfWeek(toZonedTime(now, TIMEZONE), { weekStartsOn: WEEK_STARTS_ON });
     const weekStart = getWeekStart(now);
     const weekEnd = getWeekEnd(now);
+    const dueDate = getDueThursday(toZonedTime(weekStart, TIMEZONE));
+    // Same in-progress rule as the weekly views: rent isn't owed until
+    // Thursday night, so nobody is "unpaid" before then.
+    const isInProgress = isAfter(dueDate, now);
 
     // Get all users (including admin), all schedules, and this week's rent
     // payments in three queries total.
@@ -510,7 +489,7 @@ export async function getCurrentWeekSummary(): Promise<
     }
 
     return flatmates.map((f) => {
-        const amountDue = getWeeklyAmount(schedulesByUser.get(f.id) ?? [], zonedWeekStart);
+        const amountDue = getWeeklyAmount(schedulesByUser.get(f.id) ?? [], weekStart);
         const amountPaid = paidByUser.get(f.id) ?? 0;
 
         return {
@@ -518,7 +497,7 @@ export async function getCurrentWeekSummary(): Promise<
             userName: f.name,
             amountDue,
             amountPaid,
-            status: derivePaymentStatus(amountPaid, amountDue),
+            status: getWeekPaymentStatus({ amountPaid, amountDue, isInProgress }),
         };
     });
 }

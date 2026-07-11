@@ -154,12 +154,19 @@ function ReceiptDialog({
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
     const flatmates = row.flatmates.map((f) => ({
+        userId: f.userId,
         userName: f.userName,
         amountDue: f.amountDue,
         amountPaid: f.amountPaid,
     }));
 
-    const receiptText = formatWeekViewReceipt(row.weekStart, row.weekEnd, flatmates);
+    const receiptText = formatWeekViewReceipt(
+        row.weekStart,
+        row.weekEnd,
+        flatmates,
+        undefined,
+        row.isInProgress
+    );
 
     const handlePrint = async () => {
         setIsPrinting(true);
